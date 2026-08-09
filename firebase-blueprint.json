@@ -1,0 +1,72 @@
+{
+  "entities": {
+    "members": {
+      "title": "Members",
+      "description": "Socios integrantes de Carecueca Teatro",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "rut": { "type": "string" },
+        "troupeRole": { "type": "string" },
+        "memberStatus": { "type": "string", "enum": ["Activo", "Inactivo", "Moroso", "Exento", "Honorario"] },
+        "userRole": { "type": "string", "enum": ["Admin", "Tesorero", "Socio"] },
+        "customQuota": { "type": "number" },
+        "joinDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "email", "memberStatus", "userRole"]
+    },
+    "dues": {
+      "title": "Monthly Dues",
+      "description": "Cuotas mensuales y estados de pago de cada socio",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "periodTitle": { "type": "string" },
+        "amount": { "type": "number" },
+        "amountPaid": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pendiente", "Pagado", "Atrasado", "Parcial", "Exento"] },
+        "dueDate": { "type": "string" },
+        "paidAt": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "notes": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["memberId", "year", "month", "amount", "status"]
+    },
+    "notifications": {
+      "title": "Push Notifications",
+      "description": "Alertas y notificaciones push en tiempo real",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["critical", "reminder", "payment", "system"] },
+        "read": { "type": "boolean" },
+        "memberId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "message", "type", "createdAt"]
+    },
+    "backup_logs": {
+      "title": "Cloud Backups",
+      "description": "Registro de exportaciones y respaldos en la nube",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["fileName", "createdAt"]
+    }
+  }
+}

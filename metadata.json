@@ -1,0 +1,6 @@
+{
+  "name": "Registro de Socios y Pago de Cuotas",
+  "description": "Sistema de registro de socios y control de pago de cuotas mensuales para Carecueca Teatro.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
