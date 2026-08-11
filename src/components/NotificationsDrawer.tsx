@@ -102,9 +102,9 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
           {/* Notifications List */}
           <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
             {notifications.length > 0 ? (
-              notifications.map((n) => (
+              notifications.map((n, idx) => (
                 <div
-                  key={n.id}
+                  key={`${n.id}-${idx}`}
                   className={`p-2.5 rounded-lg border text-xs transition-colors ${
                     !n.read
                       ? 'bg-indigo-50/50 border-indigo-200 text-slate-900 font-medium'

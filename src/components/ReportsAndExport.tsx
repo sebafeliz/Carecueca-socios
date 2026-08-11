@@ -234,8 +234,8 @@ export const ReportsAndExport: React.FC<ReportsAndExportProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
-              {backupLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-slate-50">
+              {backupLogs.map((log, idx) => (
+                <tr key={`${log.id}-${idx}`} className="hover:bg-slate-50">
                   <td className="py-2 px-3 font-semibold text-slate-900 flex items-center space-x-2">
                     <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
                     <span className="truncate max-w-xs">{log.fileName}</span>

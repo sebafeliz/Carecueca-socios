@@ -26,49 +26,40 @@ export const auth = getAuth(firebaseApp);
 // Seed initial data to Firestore if collections are empty
 export async function seedInitialDataIfNeeded() {
   try {
-    // Delete any existing sample members or dues if present
     const membersSnap = await getDocs(collection(db, "members"));
-    const sampleDocsToDelete: string[] = [];
-    membersSnap.forEach((docSnap) => {
-      if (docSnap.id.startsWith("mem-")) {
-        sampleDocsToDelete.push(docSnap.id);
-      }
-    });
-
-    if (sampleDocsToDelete.length > 0) {
+    if (membersSnap.empty && INITIAL_MEMBERS.length > 0) {
       const batch = writeBatch(db);
-      sampleDocsToDelete.forEach((id) => {
-        batch.delete(doc(db, "members", id));
+      INITIAL_MEMBERS.forEach((member) => {
+        const ref = doc(db, "members", member.id);
+        batch.set(ref, member);
       });
-
-      const duesSnap = await getDocs(collection(db, "dues"));
-      duesSnap.forEach((d) => {
-        if (d.id.startsWith("due-")) {
-          batch.delete(doc(db, "dues", d.id));
-        }
-      });
-
-      const notifSnap = await getDocs(collection(db, "notifications"));
-      notifSnap.forEach((n) => {
-        if (n.id.startsWith("notif-")) {
-          batch.delete(doc(db, "notifications", n.id));
-        }
-      });
-
       await batch.commit();
-      console.log("Deleted sample members and related sample dues/notifications from Firestore.");
+      console.log("Initial data seeded into Firestore.");
     }
   } catch (error) {
-    console.warn("Firestore cleanup failed or operating offline:", error);
+    console.warn("Firestore seed check skipped or operating offline:", error);
   }
 }
 
-// Subscribe helper for real-time Firestore sync with fallback
+// Subscribe helper for real-time Firestore sync with fallback & local storage mirror
 export function subscribeCollection<T extends { id: string }>(
   collectionName: string,
   initialFallback: T[],
   onUpdate: (data: T[]) => void
 ) {
+  const loadLocalFallback = () => {
+    try {
+      const stored = localStorage.getItem(`carecueca_${collectionName}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed as T[];
+      }
+    } catch (e) {
+      console.warn(`Error reading localStorage for ${collectionName}:`, e);
+    }
+    return initialFallback;
+  };
+
   try {
     const colRef = collection(db, collectionName);
     const q = query(colRef);
@@ -76,23 +67,34 @@ export function subscribeCollection<T extends { id: string }>(
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        if (snapshot.empty && initialFallback.length > 0) {
-          onUpdate(initialFallback);
+        if (snapshot.empty) {
+          const fallback = loadLocalFallback();
+          onUpdate(fallback);
         } else {
-          const items: T[] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as unknown as T));
+          const rawItems: T[] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as unknown as T));
+          const map = new Map<string, T>();
+          rawItems.forEach((item) => {
+            if (item && item.id) {
+              map.set(item.id, item);
+            }
+          });
+          const items = Array.from(map.values());
+          try {
+            localStorage.setItem(`carecueca_${collectionName}`, JSON.stringify(items));
+          } catch (e) {}
           onUpdate(items);
         }
       },
       (error) => {
         console.warn(`Firestore subscription error on ${collectionName}:`, error);
-        onUpdate(initialFallback);
+        onUpdate(loadLocalFallback());
       }
     );
 
     return unsubscribe;
   } catch (err) {
     console.warn(`Firestore init error on ${collectionName}:`, err);
-    onUpdate(initialFallback);
+    onUpdate(loadLocalFallback());
     return () => {};
   }
 }

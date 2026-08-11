@@ -39,6 +39,7 @@ export const RemindersModal: React.FC<RemindersModalProps> = ({
   // Generate WhatsApp Message Body
   const generateWhatsAppText = () => {
     if (!selectedDue) return '';
+
     const pendingAmount = selectedDue.amount - selectedDue.amountPaid;
 
     return `🎭 *Carecueca Teatro - Recordatorio de Cuota Mensual* 🎭
@@ -113,9 +114,9 @@ Agradecemos enormemente tu aporte para mantener nuestras actividades teatrales a
             <span className="font-bold text-slate-500 block text-[10px] uppercase tracking-wider mb-1">
               Pendientes ({pendingDues.length})
             </span>
-            {pendingDues.map((d) => (
+            {pendingDues.map((d, idx) => (
               <button
-                key={d.id}
+                key={`${d.id}-${idx}`}
                 onClick={() => setSelectedDueId(d.id)}
                 className={`w-full text-left p-2 rounded-md border transition-colors ${
                   selectedDueId === d.id

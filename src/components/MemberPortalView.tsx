@@ -94,8 +94,8 @@ export const MemberPortalView: React.FC<MemberPortalViewProps> = ({
             onChange={(e) => setSelectedMemberId(e.target.value)}
             className="bg-transparent font-semibold text-slate-800 focus:outline-none cursor-pointer"
           >
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
+            {members.map((m, idx) => (
+              <option key={`${m.id}-${idx}`} value={m.id}>
                 {m.name} ({m.troupeRole})
               </option>
             ))}
@@ -199,8 +199,8 @@ export const MemberPortalView: React.FC<MemberPortalViewProps> = ({
                 className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium"
               >
                 <option value="">-- Seleccionar periodo --</option>
-                {myDues.map((d) => (
-                  <option key={d.id} value={d.id}>
+                {myDues.map((d, idx) => (
+                  <option key={`${d.id}-${idx}`} value={d.id}>
                     {d.periodTitle} ({formatCLP(d.amount - d.amountPaid)} - {d.status})
                   </option>
                 ))}
@@ -258,8 +258,8 @@ export const MemberPortalView: React.FC<MemberPortalViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-800 font-medium">
-                {myDues.map((due) => (
-                  <tr key={due.id} className="hover:bg-slate-50">
+                {myDues.map((due, idx) => (
+                  <tr key={`${due.id}-${idx}`} className="hover:bg-slate-50">
                     <td className="py-2 px-3 font-semibold text-slate-900">{due.periodTitle}</td>
                     <td className="py-2 px-3">{formatCLP(due.amount)}</td>
                     <td className="py-2 px-3 font-bold text-emerald-700">{formatCLP(due.amountPaid)}</td>

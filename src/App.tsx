@@ -43,16 +43,75 @@ import {
 } from './lib/notificationService';
 import { generatePDFReport, exportToExcelOrCSV } from './lib/exportUtils';
 
+export function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const map = new Map<string, T>();
+  items.forEach((item) => {
+    if (item && item.id) {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('members');
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('Admin');
 
-  // Firestore collections state with initial fallback
-  const [members, setMembers] = useState<Member[]>(INITIAL_MEMBERS);
-  const [dues, setDues] = useState<DuePayment[]>(INITIAL_DUES);
-  const [periods, setPeriods] = useState<QuotaPeriod[]>(INITIAL_PERIODS);
-  const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
-  const [backupLogs, setBackupLogs] = useState<BackupLog[]>(INITIAL_BACKUPS);
+  // Firestore collections state with initial fallback and local storage persistence
+  const [members, setMembers] = useState<Member[]>(() => {
+    try {
+      const saved = localStorage.getItem('carecueca_members');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return dedupeById(parsed);
+      }
+    } catch (e) {}
+    return dedupeById(INITIAL_MEMBERS);
+  });
+
+  const [dues, setDues] = useState<DuePayment[]>(() => {
+    try {
+      const saved = localStorage.getItem('carecueca_dues');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return dedupeById(parsed);
+      }
+    } catch (e) {}
+    return dedupeById(INITIAL_DUES);
+  });
+
+  const [periods, setPeriods] = useState<QuotaPeriod[]>(() => {
+    try {
+      const saved = localStorage.getItem('carecueca_periods');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return dedupeById(parsed);
+      }
+    } catch (e) {}
+    return dedupeById(INITIAL_PERIODS);
+  });
+
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('carecueca_notifications');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return dedupeById(parsed);
+      }
+    } catch (e) {}
+    return dedupeById(INITIAL_NOTIFICATIONS);
+  });
+
+  const [backupLogs, setBackupLogs] = useState<BackupLog[]>(() => {
+    try {
+      const saved = localStorage.getItem('carecueca_backup_logs');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return dedupeById(parsed);
+      }
+    } catch (e) {}
+    return dedupeById(INITIAL_BACKUPS);
+  });
 
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>(INITIAL_PERIODS[INITIAL_PERIODS.length - 1]?.id || 'per-2026-08');
   const [pushEnabled, setPushEnabled] = useState<boolean>(false);
@@ -108,36 +167,99 @@ export default function App() {
 
   // Member CRUD Actions
   const handleSaveMember = async (memberToSave: Member) => {
+    const isNew = !members.some((m) => m.id === memberToSave.id);
+
     setMembers((prev) => {
       const exists = prev.some((m) => m.id === memberToSave.id);
-      return exists ? prev.map((m) => (m.id === memberToSave.id ? memberToSave : m)) : [...prev, memberToSave];
+      const next = exists ? prev.map((m) => (m.id === memberToSave.id ? memberToSave : m)) : [...prev, memberToSave];
+      try { localStorage.setItem('carecueca_members', JSON.stringify(next)); } catch (e) {}
+      return next;
     });
 
-    await saveMemberToFirestore(memberToSave);
+    // Auto-generate dues for existing open periods if this is a newly registered member
+    if (isNew && memberToSave.memberStatus !== 'Inactivo') {
+      const generatedDues: DuePayment[] = periods.map((p) => {
+        const dueId = `due-${p.year}${p.month}-${memberToSave.id}`;
+        const isExempt = memberToSave.memberStatus === 'Exento' || memberToSave.memberStatus === 'Honorario' || memberToSave.customQuota === 0;
+        const amountToCharge = isExempt ? 0 : (memberToSave.customQuota > 0 ? memberToSave.customQuota : p.baseAmount);
+        
+        return {
+          id: dueId,
+          memberId: memberToSave.id,
+          memberName: memberToSave.name,
+          year: p.year,
+          month: p.month,
+          periodTitle: p.title,
+          amount: amountToCharge,
+          amountPaid: 0,
+          status: isExempt ? 'Exento' : 'Pendiente',
+          dueDate: p.dueDate,
+          notes: isExempt ? `Exento (${memberToSave.memberStatus})` : ''
+        };
+      });
+
+      if (generatedDues.length > 0) {
+        setDues((prev) => {
+          const next = dedupeById([...prev, ...generatedDues]);
+          try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
+        try { await batchSaveDuesToFirestore(generatedDues); } catch (e) {}
+      }
+    }
+
+    try {
+      await saveMemberToFirestore(memberToSave);
+    } catch (err) {
+      console.warn("Firestore member save failed:", err);
+    }
     showToast(`Socio ${memberToSave.name} guardado con éxito.`);
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    setMembers((prev) => prev.filter((m) => m.id !== memberId));
-    await deleteMemberFromFirestore(memberId);
+    setMembers((prev) => {
+      const next = prev.filter((m) => m.id !== memberId);
+      try { localStorage.setItem('carecueca_members', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    setDues((prev) => {
+      const next = prev.filter((d) => d.memberId !== memberId);
+      try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    try {
+      await deleteMemberFromFirestore(memberId);
+    } catch (err) {
+      console.warn("Firestore member delete failed:", err);
+    }
     showToast("Socio eliminado del sistema.");
   };
 
   // Due Update Action
   const handleUpdateDue = async (updatedDue: DuePayment) => {
-    setDues((prev) => prev.map((d) => (d.id === updatedDue.id ? updatedDue : d)));
-    await saveDueToFirestore(updatedDue);
+    setDues((prev) => {
+      const next = prev.map((d) => (d.id === updatedDue.id ? updatedDue : d));
+      try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    try {
+      await saveDueToFirestore(updatedDue);
+    } catch (err) {
+      console.warn("Firestore due update failed:", err);
+    }
 
     if (updatedDue.status === 'Pagado') {
       const notifMsg = `Confirmación de pago recibida para ${updatedDue.memberName} en el periodo ${updatedDue.periodTitle}.`;
-      await addNotificationToFirestore({
-        title: "✅ Pago Registrado",
-        message: notifMsg,
-        type: "payment",
-        read: false,
-        memberId: updatedDue.memberId,
-        createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
-      });
+      try {
+        await addNotificationToFirestore({
+          title: "✅ Pago Registrado",
+          message: notifMsg,
+          type: "payment",
+          read: false,
+          memberId: updatedDue.memberId,
+          createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+        });
+      } catch (e) {}
 
       if (pushEnabled) {
         sendBrowserPushNotification("✅ Nuevo Pago Confirmado", {
@@ -167,22 +289,21 @@ export default function App() {
 
     setPeriods((prev) => {
       const exists = prev.some((p) => p.id === periodId);
-      if (exists) {
-        return prev.map((p) => (p.id === periodId ? newPeriod : p));
-      }
-      return [...prev, newPeriod];
+      const next = exists ? prev.map((p) => (p.id === periodId ? newPeriod : p)) : [...prev, newPeriod];
+      try { localStorage.setItem('carecueca_periods', JSON.stringify(next)); } catch (e) {}
+      return next;
     });
     setSelectedPeriodId(periodId);
 
     // Create dues for active members
     const newDuesList: DuePayment[] = members
       .filter((m) => m.memberStatus !== 'Inactivo')
-      .map((m, index) => {
+      .map((m) => {
         const isExempt = m.memberStatus === 'Exento' || m.memberStatus === 'Honorario' || m.customQuota === 0;
         const amountToCharge = isExempt ? 0 : (m.customQuota > 0 ? m.customQuota : baseAmount);
 
         return {
-          id: `due-${year}${month}-${index + 1}`,
+          id: `due-${year}${month}-${m.id}`,
           memberId: m.id,
           memberName: m.name,
           year,
@@ -196,8 +317,17 @@ export default function App() {
         };
       });
 
-    setDues((prev) => [...prev, ...newDuesList]);
-    await batchSaveDuesToFirestore(newDuesList);
+    setDues((prev) => {
+      const next = dedupeById([...prev, ...newDuesList]);
+      try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    try {
+      await batchSaveDuesToFirestore(newDuesList);
+    } catch (err) {
+      console.warn("Firestore batch save failed:", err);
+    }
 
     showToast(`Periodo ${title} creado y cuotas generadas para ${newDuesList.length} socios.`);
   };
