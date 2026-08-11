@@ -59,9 +59,6 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-2">
             <CarecuecaLogo size="md" lightText={true} />
-            <span className="hidden lg:inline-flex items-center px-2.5 py-1 rounded text-xs font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/60 uppercase tracking-wider ml-1">
-              Tesorería
-            </span>
           </div>
 
           {/* Desktop Navigation */}
