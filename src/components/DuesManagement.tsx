@@ -11,7 +11,8 @@ import {
   X, 
   Calendar,
   Receipt,
-  UserCheck
+  UserCheck,
+  Trash2
 } from 'lucide-react';
 import { Member, DuePayment, QuotaPeriod, PaymentStatus, PaymentMethod } from '../types';
 import { formatCLP } from '../lib/exportUtils';
@@ -72,35 +73,67 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   // Open Payment Modal
   const openPaymentModal = (due: DuePayment) => {
     setSelectedDue(due);
-    setAmountToPay(due.amount - due.amountPaid > 0 ? due.amount - due.amountPaid : due.amount);
+    // When editing an existing payment (amountPaid > 0), load that exact paid amount into the form.
+    // If amountPaid === 0, default to full quota amount for quick 1-click payment.
+    setAmountToPay(due.amountPaid > 0 ? due.amountPaid : due.amount);
     setPayMethod(due.paymentMethod || 'Transferencia Bancaria');
     setReceiptNo(due.receiptNumber || `REC-${due.year}${String(due.month).padStart(2, '0')}-${Math.floor(Math.random() * 89 + 10)}`);
     setPayNotes(due.notes || '');
     setPaymentModalOpen(true);
   };
 
-  // Submit Payment
+  // Submit Payment (Direct replacement of paid amount, no sum overflow)
   const handleRegisterPaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDue) return;
 
-    const newAmountPaid = (selectedDue.amountPaid || 0) + Number(amountToPay);
+    const newAmountPaid = Number(amountToPay);
     let newStatus: PaymentStatus = 'Parcial';
 
     if (newAmountPaid >= selectedDue.amount) {
       newStatus = 'Pagado';
-    } else if (newAmountPaid === 0) {
-      newStatus = 'Pendiente';
+    } else if (newAmountPaid <= 0) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const isOverdue = selectedDue.dueDate && selectedDue.dueDate < todayStr;
+      newStatus = selectedDue.status === 'Exento' ? 'Exento' : (isOverdue ? 'Atrasado' : 'Pendiente');
     }
 
     const updated: DuePayment = {
       ...selectedDue,
-      amountPaid: newAmountPaid,
+      amountPaid: Math.max(0, newAmountPaid),
       status: newStatus,
-      paidAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-      paymentMethod: payMethod,
-      receiptNumber: receiptNo,
+      paidAt: newAmountPaid > 0 
+        ? (selectedDue.paidAt || new Date().toISOString().replace('T', ' ').substring(0, 16))
+        : undefined,
+      paymentMethod: newAmountPaid > 0 ? payMethod : undefined,
+      receiptNumber: newAmountPaid > 0 ? receiptNo : undefined,
       notes: payNotes,
+      updatedAt: new Date().toISOString()
+    };
+
+    onUpdateDue(updated);
+    setPaymentModalOpen(false);
+  };
+
+  // Delete Payment / Revert to Pending
+  const handleDeletePayment = () => {
+    if (!selectedDue) return;
+    if (!window.confirm(`¿Estás seguro de eliminar el registro de pago de ${selectedDue.memberName}? La cuota se reestablecerá como pendiente.`)) {
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isOverdue = selectedDue.dueDate && selectedDue.dueDate < todayStr;
+    const isExempt = selectedDue.status === 'Exento';
+
+    const updated: DuePayment = {
+      ...selectedDue,
+      amountPaid: 0,
+      status: isExempt ? 'Exento' : (isOverdue ? 'Atrasado' : 'Pendiente'),
+      paidAt: undefined,
+      paymentMethod: undefined,
+      receiptNumber: undefined,
+      notes: '',
       updatedAt: new Date().toISOString()
     };
 
@@ -343,20 +376,36 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center space-x-3 mb-5">
+            <div className="flex items-center space-x-3 mb-4">
               <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
                 <DollarSign className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Registrar Pago</h3>
+                <h3 className="text-base font-bold text-slate-900">
+                  {selectedDue.amountPaid > 0 ? 'Editar Pago de Cuota' : 'Registrar Pago de Cuota'}
+                </h3>
                 <p className="text-sm text-slate-500 font-medium">{selectedDue.memberName} ({selectedDue.periodTitle})</p>
+              </div>
+            </div>
+
+            {/* Quota context summary box */}
+            <div className="mb-4 p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs font-medium text-slate-700">
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-bold">Monto Total Cuota</span>
+                <span className="text-sm font-bold text-slate-900">{formatCLP(selectedDue.amount)}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-500 block text-[10px] uppercase font-bold">Estado Actual</span>
+                <span className={`text-xs font-bold ${selectedDue.status === 'Pagado' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {selectedDue.status} {selectedDue.amountPaid > 0 ? `(${formatCLP(selectedDue.amountPaid)})` : ''}
+                </span>
               </div>
             </div>
 
             <form onSubmit={handleRegisterPaymentSubmit} className="space-y-4 text-sm">
               
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Monto Ingresado ($ CLP)</label>
+                <label className="block font-semibold text-slate-800 mb-1">Monto Pagado ($ CLP)</label>
                 <input
                   type="number"
                   required
@@ -366,6 +415,7 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                   onChange={(e) => setAmountToPay(Number(e.target.value))}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-base font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
+                <p className="text-[11px] text-slate-500 mt-1">Ingresa el total acumulado que el socio ha pagado para esta cuota.</p>
               </div>
 
               <div>
@@ -395,7 +445,7 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Notas</label>
+                <label className="block font-semibold text-slate-800 mb-1">Notas / Observaciones</label>
                 <textarea
                   rows={2}
                   placeholder="Observaciones de Tesorería..."
@@ -405,20 +455,34 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                 />
               </div>
 
-              <div className="pt-3 flex items-center justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setPaymentModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-sm transition-colors"
-                >
-                  Guardar Pago
-                </button>
+              <div className="pt-3 flex items-center justify-between border-t border-slate-100 mt-4">
+                {selectedDue.amountPaid > 0 || selectedDue.status === 'Pagado' || selectedDue.status === 'Parcial' ? (
+                  <button
+                    type="button"
+                    onClick={handleDeletePayment}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                    title="Eliminar este pago y reestablecer cuota a pendiente"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Eliminar Pago</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                  >
+                    Guardar
+                  </button>
+                </div>
               </div>
 
             </form>
