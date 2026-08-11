@@ -268,9 +268,12 @@ export default function App() {
       } else {
         playAlertChime('success');
       }
+      showToast("✅ Pago registrado con éxito.");
+    } else if (updatedDue.amountPaid === 0) {
+      showToast("🗑️ Pago eliminado. La cuota volvió a quedar pendiente.");
+    } else {
+      showToast("Estado de cuota actualizado correctamente.");
     }
-
-    showToast("Estado de cuota actualizado correctamente.");
   };
 
   // Create New Period & Batch Generate Dues

@@ -46,7 +46,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   navigateToTab
 }) => {
   const currentPeriod = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
-  const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || d.month === currentPeriod?.month);
+  const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || (d.year === currentPeriod?.year && d.month === currentPeriod?.month));
 
   // Financial calculations
   const totalProjected = periodDues.reduce((acc, d) => acc + d.amount, 0);
@@ -410,9 +410,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     {getStatusBadge(d.status)}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-600">
-                    {d.status === 'Pagado' ? (
+                    {d.status === 'Pagado' || d.amountPaid > 0 ? (
                       <span className="text-slate-800 font-medium">
-                        {d.paymentMethod || 'Transferencia'} ({d.paymentDate || 'Confirmado'})
+                        {d.paymentMethod || 'Transferencia'} ({d.paidAt ? d.paidAt.split(' ')[0] : 'Confirmado'})
                       </span>
                     ) : (
                       <span className="italic text-slate-400">Sin pago registrado</span>

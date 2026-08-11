@@ -99,11 +99,23 @@ export function subscribeCollection<T extends { id: string }>(
   }
 }
 
+// Helper to clean undefined values before sending to Firestore
+function cleanForFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const cleaned: Record<string, any> = {};
+  Object.keys(obj).forEach((key) => {
+    const val = obj[key];
+    if (val !== undefined) {
+      cleaned[key] = val;
+    }
+  });
+  return cleaned;
+}
+
 // Firestore Operations for Members
 export async function saveMemberToFirestore(member: Member): Promise<void> {
   try {
     const docRef = doc(db, "members", member.id);
-    await setDoc(docRef, member, { merge: true });
+    await setDoc(docRef, cleanForFirestore(member));
   } catch (err) {
     console.error("Error saving member to Firestore:", err);
   }
@@ -121,7 +133,7 @@ export async function deleteMemberFromFirestore(memberId: string): Promise<void>
 export async function saveDueToFirestore(due: DuePayment): Promise<void> {
   try {
     const docRef = doc(db, "dues", due.id);
-    await setDoc(docRef, due, { merge: true });
+    await setDoc(docRef, cleanForFirestore(due));
   } catch (err) {
     console.error("Error saving due to Firestore:", err);
   }
@@ -132,7 +144,7 @@ export async function batchSaveDuesToFirestore(dues: DuePayment[]): Promise<void
     const batch = writeBatch(db);
     dues.forEach((due) => {
       const ref = doc(db, "dues", due.id);
-      batch.set(ref, due, { merge: true });
+      batch.set(ref, cleanForFirestore(due));
     });
     await batch.commit();
   } catch (err) {

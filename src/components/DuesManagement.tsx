@@ -12,7 +12,8 @@ import {
   Calendar,
   Receipt,
   UserCheck,
-  Trash2
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { Member, DuePayment, QuotaPeriod, PaymentStatus, PaymentMethod } from '../types';
 import { formatCLP } from '../lib/exportUtils';
@@ -57,10 +58,66 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   const [newPeriodDueDate, setNewPeriodDueDate] = useState<string>('2026-09-10');
   const [newPeriodBaseAmount, setNewPeriodBaseAmount] = useState<number>(10000);
 
+  // Modal State for Resetting Dues Payments
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+
   const currentPeriod = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
 
   // Filter dues
   const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || d.month === currentPeriod?.month);
+  
+  // Paid dues for current period summary
+  const paidPeriodDues = periodDues.filter((d) => d.amountPaid > 0 || d.status === 'Pagado' || d.status === 'Parcial');
+
+  // Reset a single payment
+  const handleResetSingleDue = (due: DuePayment) => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isOverdue = due.dueDate && due.dueDate < todayStr;
+    const isExempt = due.status === 'Exento';
+
+    const updated: DuePayment = {
+      ...due,
+      amountPaid: 0,
+      status: isExempt ? 'Exento' : (isOverdue ? 'Atrasado' : 'Pendiente'),
+      paidAt: undefined,
+      paymentMethod: undefined,
+      receiptNumber: undefined,
+      notes: '',
+      updatedAt: new Date().toISOString()
+    };
+
+    onUpdateDue(updated);
+  };
+
+  // Reset ALL paid dues in current period
+  const handleResetAllPeriodPayments = () => {
+    if (paidPeriodDues.length === 0) return;
+    if (!window.confirm(`¿Estás seguro de reiniciar TODOS los pagos del período ${currentPeriod?.title}? Se borrarán ${paidPeriodDues.length} registro(s) de pago.`)) {
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    paidPeriodDues.forEach((due) => {
+      const isOverdue = due.dueDate && due.dueDate < todayStr;
+      const isExempt = due.status === 'Exento';
+
+      const updated: DuePayment = {
+        ...due,
+        amountPaid: 0,
+        status: isExempt ? 'Exento' : (isOverdue ? 'Atrasado' : 'Pendiente'),
+        paidAt: undefined,
+        paymentMethod: undefined,
+        receiptNumber: undefined,
+        notes: '',
+        updatedAt: new Date().toISOString()
+      };
+
+      onUpdateDue(updated);
+    });
+
+    setResetModalOpen(false);
+  };
 
   const filteredDues = periodDues.filter((d) => {
     const matchesSearch = 
@@ -363,6 +420,22 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
           )}
         </div>
 
+        {/* Listing Footer with Reset Button at Bottom-Left */}
+        <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+          <button
+            onClick={() => setResetModalOpen(true)}
+            className="px-3 py-1.5 bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-200 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-colors cursor-pointer"
+            title="Reiniciar o revisar los pagos de cuotas del período"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+            <span>Reinicio de Pagos</span>
+          </button>
+
+          <span className="text-xs text-slate-500 font-medium">
+            Mostrando <strong className="text-slate-800 font-bold">{filteredDues.length}</strong> de {periodDues.length} cuotas
+          </span>
+        </div>
+
       </div>
 
       {/* Modal: Registrar Pago de Cuota */}
@@ -577,6 +650,110 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reinicio de Pagos y Recuadro de Cuotas Pagadas por Socio */}
+      {resetModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] flex flex-col">
+            <button
+              onClick={() => setResetModalOpen(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-2.5 bg-rose-50 text-rose-600 rounded-xl">
+                <RotateCcw className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Reinicio de Pagos de Cuotas</h3>
+                <p className="text-xs text-slate-500 font-medium">Período actual: <strong className="text-slate-800">{currentPeriod?.title}</strong></p>
+              </div>
+            </div>
+
+            {/* Recuadro con las cuotas pagadas de cada socio */}
+            <div className="mb-4 flex-1 overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Cuotas Pagadas por Socio ({paidPeriodDues.length})
+                </span>
+                <span className="text-xs font-bold text-emerald-700">
+                  Total: {formatCLP(paidPeriodDues.reduce((acc, d) => acc + d.amountPaid, 0))}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 overflow-y-auto space-y-2 max-h-60">
+                {paidPeriodDues.length > 0 ? (
+                  paidPeriodDues.map((due) => (
+                    <div 
+                      key={due.id} 
+                      className="bg-white p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs shadow-2xs hover:border-slate-300 transition-colors"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-900 block text-sm">{due.memberName}</span>
+                        <span className="text-[11px] text-slate-500">
+                          {due.paymentMethod || 'Transferencia'} • {due.paidAt ? due.paidAt.split(' ')[0] : 'Fecha no reg.'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-3">
+                        <div className="text-right">
+                          <span className="font-bold text-emerald-700 block text-sm">{formatCLP(due.amountPaid)}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${due.status === 'Pagado' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                            {due.status}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleResetSingleDue(due)}
+                          className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-colors cursor-pointer text-xs font-semibold flex items-center space-x-1"
+                          title="Reiniciar pago de este socio a $0"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Reiniciar</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-xs text-slate-500 font-medium">
+                    No hay cuotas pagadas registradas para el período <strong>{currentPeriod?.title}</strong>.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-600 mb-4 bg-amber-50 border border-amber-200 p-3 rounded-xl text-amber-800 flex items-start space-x-2">
+              <span className="text-sm">⚠️</span>
+              <span>
+                <strong>Nota:</strong> Al presionar <strong>"Reiniciar Todos los Pagos"</strong>, se borrarán todos los pagos ingresados para <strong>{currentPeriod?.title}</strong> y volverán a estado pendiente.
+              </span>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between mt-auto">
+              <button
+                type="button"
+                onClick={() => setResetModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Cerrar
+              </button>
+
+              {paidPeriodDues.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleResetAllPeriodPayments}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Reiniciar Todos los Pagos</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
