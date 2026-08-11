@@ -13,7 +13,13 @@ import {
   Receipt,
   UserCheck,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  MessageSquare,
+  Share2,
+  Mail,
+  Copy,
+  Check,
+  ExternalLink
 } from 'lucide-react';
 import { Member, DuePayment, QuotaPeriod, PaymentStatus, PaymentMethod } from '../types';
 import { formatCLP } from '../lib/exportUtils';
@@ -61,7 +67,63 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   // Modal State for Resetting Dues Payments
   const [resetModalOpen, setResetModalOpen] = useState(false);
 
+  // Modal State for Payment Confirmation Message
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [confirmDue, setConfirmDue] = useState<DuePayment | null>(null);
+  const [copiedSuccess, setCopiedSuccess] = useState(false);
+
   const currentPeriod = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
+
+  // Helper to construct formatted payment confirmation message
+  const getConfirmationText = (due: DuePayment) => {
+    const dateStr = due.paidAt ? due.paidAt.split(' ')[0] : new Date().toISOString().split('T')[0];
+    return `🎭 *Compañía Carecueca Teatro*
+*Comprobante de Confirmación de Pago*
+
+Hola *${due.memberName}*, te confirmamos la recepción de tu pago:
+
+📌 *Período:* ${due.periodTitle}
+💰 *Monto Registrado:* ${formatCLP(due.amountPaid)}
+💳 *Método de Pago:* ${due.paymentMethod || 'Transferencia'}
+🧾 *N° Comprobante:* ${due.receiptNumber || 'REC-CONFIRMED'}
+📅 *Fecha:* ${dateStr}
+📊 *Estado Cuota:* ${due.status}
+
+¡Muchas gracias por tu compromiso y aporte a la compañía! 🎬
+_Tesorería Carecueca Teatro_`;
+  };
+
+  const handleOpenConfirmModal = (due: DuePayment) => {
+    setConfirmDue(due);
+    setConfirmModalOpen(true);
+    setCopiedSuccess(false);
+  };
+
+  const handleSendWhatsAppConfirmation = (due: DuePayment) => {
+    const member = members.find((m) => m.id === due.memberId);
+    const rawPhone = member?.phone || '';
+    const cleanPhone = rawPhone.replace(/[^\d]/g, '');
+    const formattedPhone = cleanPhone.length === 9 && cleanPhone.startsWith('9') ? `56${cleanPhone}` : cleanPhone;
+    const msg = getConfirmationText(due);
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleSendEmailConfirmation = (due: DuePayment) => {
+    const member = members.find((m) => m.id === due.memberId);
+    const email = member?.email || '';
+    const subject = `Confirmación de Pago - Cuota ${due.periodTitle} - Carecueca Teatro`;
+    const msg = getConfirmationText(due);
+    const url = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleCopyConfirmationText = (due: DuePayment) => {
+    const msg = getConfirmationText(due);
+    navigator.clipboard.writeText(msg);
+    setCopiedSuccess(true);
+    setTimeout(() => setCopiedSuccess(false), 2500);
+  };
 
   // Filter dues
   const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || d.month === currentPeriod?.month);
@@ -170,6 +232,12 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
 
     onUpdateDue(updated);
     setPaymentModalOpen(false);
+
+    if (newAmountPaid > 0) {
+      setConfirmDue(updated);
+      setConfirmModalOpen(true);
+      setCopiedSuccess(false);
+    }
   };
 
   // Delete Payment / Revert to Pending
@@ -332,7 +400,7 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end space-x-2">
                         
-                        {/* Register Payment Button */}
+                        {/* Register / Edit Payment Button */}
                         <button
                           onClick={() => openPaymentModal(due)}
                           className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-xs transition-colors cursor-pointer"
@@ -340,14 +408,24 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                           {due.status === 'Pagado' ? 'Editar' : 'Registrar Pago'}
                         </button>
 
-                        {/* WhatsApp Reminder Button */}
-                        <button
-                          onClick={() => onSendWhatsAppReminder(due)}
-                          title="Enviar Recordatorio/Cobro por WhatsApp"
-                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
+                        {/* Send Message Button: Confirmation if paid, Reminder if unpaid */}
+                        {due.amountPaid > 0 || due.status === 'Pagado' || due.status === 'Parcial' ? (
+                          <button
+                            onClick={() => handleOpenConfirmModal(due)}
+                            title="Enviar Confirmación de Pago por WhatsApp / Correo"
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onSendWhatsAppReminder(due)}
+                            title="Enviar Recordatorio/Cobro por WhatsApp"
+                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 cursor-pointer transition-colors"
+                          >
+                            <Send className="w-4 h-4" />
+                          </button>
+                        )}
 
                       </div>
                     </td>
@@ -396,17 +474,27 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                 )}
 
                 <div className="flex items-center justify-end space-x-2 pt-1">
-                  <button
-                    onClick={() => onSendWhatsAppReminder(due)}
-                    className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5"
-                  >
-                    <Send className="w-4 h-4 text-emerald-600" />
-                    <span>WhatsApp</span>
-                  </button>
+                  {due.amountPaid > 0 || due.status === 'Pagado' || due.status === 'Parcial' ? (
+                    <button
+                      onClick={() => handleOpenConfirmModal(due)}
+                      className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Confirmación</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onSendWhatsAppReminder(due)}
+                      className="flex-1 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>Recordatorio</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => openPaymentModal(due)}
-                    className="flex-1 py-2 bg-indigo-600 text-white font-bold rounded-xl text-xs"
+                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-xs transition-colors cursor-pointer"
                   >
                     {due.status === 'Pagado' ? 'Editar Pago' : 'Registrar Pago'}
                   </button>
@@ -700,17 +788,28 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                         </span>
                       </div>
 
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-2">
                         <div className="text-right">
                           <span className="font-bold text-emerald-700 block text-sm">{formatCLP(due.amountPaid)}</span>
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${due.status === 'Pagado' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
                             {due.status}
                           </span>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenConfirmModal(due)}
+                          className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg transition-colors cursor-pointer text-xs font-semibold flex items-center space-x-1"
+                          title="Enviar confirmación de pago a este socio"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Mensaje</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleResetSingleDue(due)}
-                          className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-colors cursor-pointer text-xs font-semibold flex items-center space-x-1"
+                          className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition-colors cursor-pointer text-xs font-semibold flex items-center space-x-1"
                           title="Reiniciar pago de este socio a $0"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
@@ -753,6 +852,83 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
                   <span>Reiniciar Todos los Pagos</span>
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Enviar Confirmación de Pago por WhatsApp / Email / Copiar */}
+      {confirmModalOpen && confirmDue && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150">
+            <button
+              onClick={() => setConfirmModalOpen(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Confirmación de Pago</h3>
+                <p className="text-xs text-slate-500 font-medium">{confirmDue.memberName} • {confirmDue.periodTitle}</p>
+              </div>
+            </div>
+
+            <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-700">
+              <span>Vista Previa del Mensaje:</span>
+              <span className="text-slate-400 font-normal">Formato listo para enviar</span>
+            </div>
+
+            {/* Message Box */}
+            <div className="mb-5 bg-slate-50 border border-slate-200 p-3.5 rounded-xl text-xs font-mono text-slate-800 whitespace-pre-line leading-relaxed relative max-h-56 overflow-y-auto">
+              {getConfirmationText(confirmDue)}
+            </div>
+
+            {/* Direct Send Buttons */}
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={() => handleSendWhatsAppConfirmation(confirmDue)}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-2 shadow-xs transition-colors cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                <span>Enviar Confirmación por WhatsApp</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSendEmailConfirmation(confirmDue)}
+                  className="py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-semibold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>Enviar por Correo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyConfirmationText(confirmDue)}
+                  className="py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl font-semibold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  {copiedSuccess ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedSuccess ? '¡Copiado!' : 'Copiar Texto'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">Notificación individual a socio</span>
+              <button
+                type="button"
+                onClick={() => setConfirmModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
