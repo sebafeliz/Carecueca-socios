@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   Search, 
@@ -12,17 +12,44 @@ import {
   Drama,
   CheckCircle2,
   AlertCircle,
-  UserCheck
+  UserCheck,
+  RotateCcw,
+  Sparkles,
+  AlertTriangle,
+  RefreshCw,
+  Clock
 } from 'lucide-react';
 import { Member, MemberStatus, UserRole, TroupeRole } from '../types';
 import { formatCLP } from '../lib/exportUtils';
+import { 
+  saveFormDraft, 
+  loadFormDraft, 
+  clearFormDraft 
+} from '../lib/recoveryService';
 
 interface MembersListProps {
   members: Member[];
   currentUserRole: UserRole;
-  onSaveMember: (member: Member) => void;
-  onDeleteMember: (id: string) => void;
+  onSaveMember: (member: Member) => Promise<void> | void;
+  onDeleteMember: (id: string) => Promise<void> | void;
   openRolesModal: () => void;
+  openRecoveryModal: () => void;
+  recoverableCount: number;
+  onQuickRestoreAll?: () => Promise<void>;
+}
+
+// Utility to format Chilean RUT (e.g. 12345678k -> 12.345.678-K)
+export function formatRUT(value: string): string {
+  const clean = value.replace(/[^0-9kK]/g, '').toUpperCase();
+  if (clean.length <= 1) return clean;
+  const dv = clean.slice(-1);
+  let body = clean.slice(0, -1);
+  let formatted = '';
+  while (body.length > 3) {
+    formatted = '.' + body.slice(-3) + formatted;
+    body = body.slice(0, -3);
+  }
+  return (body + formatted + '-' + dv).slice(0, 12);
 }
 
 export const MembersList: React.FC<MembersListProps> = ({
@@ -30,7 +57,10 @@ export const MembersList: React.FC<MembersListProps> = ({
   currentUserRole,
   onSaveMember,
   onDeleteMember,
-  openRolesModal
+  openRolesModal,
+  openRecoveryModal,
+  recoverableCount,
+  onQuickRestoreAll
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('Todos');
@@ -39,6 +69,11 @@ export const MembersList: React.FC<MembersListProps> = ({
   // Modal State
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Deletion Confirmation Dialog State
+  const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form Fields
   const [name, setName] = useState('');
@@ -50,6 +85,33 @@ export const MembersList: React.FC<MembersListProps> = ({
   const [userRole, setUserRole] = useState<UserRole>('Socio');
   const [customQuota, setCustomQuota] = useState<number>(10000);
   const [notes, setNotes] = useState('');
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // Check for saved form draft when opening add form
+  const checkDraftOnOpen = () => {
+    const draft = loadFormDraft();
+    if (draft && draft.name) {
+      setHasDraft(true);
+    } else {
+      setHasDraft(false);
+    }
+  };
+
+  const applyDraft = () => {
+    const draft = loadFormDraft();
+    if (draft) {
+      if (draft.name) setName(draft.name);
+      if (draft.email) setEmail(draft.email);
+      if (draft.phone) setPhone(draft.phone);
+      if (draft.rut) setRut(draft.rut);
+      if (draft.troupeRole) setTroupeRole(draft.troupeRole);
+      if (draft.memberStatus) setMemberStatus(draft.memberStatus);
+      if (draft.userRole) setUserRole(draft.userRole);
+      if (typeof draft.customQuota === 'number') setCustomQuota(draft.customQuota);
+      if (draft.notes) setNotes(draft.notes);
+      setHasDraft(false);
+    }
+  };
 
   const openAddModal = () => {
     setEditingMember(null);
@@ -62,6 +124,7 @@ export const MembersList: React.FC<MembersListProps> = ({
     setUserRole('Socio');
     setCustomQuota(10000);
     setNotes('');
+    checkDraftOnOpen();
     setMemberModalOpen(true);
   };
 
@@ -76,29 +139,68 @@ export const MembersList: React.FC<MembersListProps> = ({
     setUserRole(member.userRole);
     setCustomQuota(member.customQuota);
     setNotes(member.notes || '');
+    setHasDraft(false);
     setMemberModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Auto-save draft when adding a new member
+  const handleFieldChange = (field: string, val: any) => {
+    if (!editingMember) {
+      saveFormDraft({
+        name: field === 'name' ? val : name,
+        email: field === 'email' ? val : email,
+        phone: field === 'phone' ? val : phone,
+        rut: field === 'rut' ? val : rut,
+        troupeRole: field === 'troupeRole' ? val : troupeRole,
+        memberStatus: field === 'memberStatus' ? val : memberStatus,
+        userRole: field === 'userRole' ? val : userRole,
+        customQuota: field === 'customQuota' ? val : customQuota,
+        notes: field === 'notes' ? val : notes
+      });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
 
     const memberToSave: Member = {
       id: editingMember ? editingMember.id : 'mem-' + Date.now(),
-      name,
-      email,
-      phone,
-      rut,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      rut: rut.trim(),
       troupeRole,
       memberStatus,
       userRole,
       customQuota: Number(customQuota),
       joinDate: editingMember ? editingMember.joinDate : new Date().toISOString().split('T')[0],
-      notes,
+      notes: notes.trim(),
       createdAt: editingMember?.createdAt || new Date().toISOString()
     };
 
-    onSaveMember(memberToSave);
-    setMemberModalOpen(false);
+    try {
+      await onSaveMember(memberToSave);
+      clearFormDraft();
+      setMemberModalOpen(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!memberToDelete) return;
+    setIsDeleting(true);
+    try {
+      await onDeleteMember(memberToDelete.id);
+      setMemberToDelete(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Filter members
@@ -131,27 +233,137 @@ export const MembersList: React.FC<MembersListProps> = ({
 
   return (
     <div className="space-y-5">
+
+      {/* RECOVERY ALERT BANNER (Shown if previously entered members are found) */}
+      {recoverableCount > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-indigo-500/10 border-2 border-amber-300 rounded-2xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0 mt-0.5">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm md:text-base flex items-center gap-2">
+                <span>¡Se encontraron {recoverableCount} socio(s) ingresados anteriormente!</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  Rescatados en Memoria
+                </span>
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 max-w-2xl">
+                Detectamos registros previos en la bóveda de seguridad y memoria de tu navegador que no están en la lista actual. Puedes restaurarlos inmediatamente con 1 clic para que queden asegurados en Firestore.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2.5 shrink-0 self-end md:self-center">
+            {onQuickRestoreAll && (
+              <button
+                onClick={onQuickRestoreAll}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition-all"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Restaurar todos ahora</span>
+              </button>
+            )}
+            <button
+              onClick={openRecoveryModal}
+              className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl text-xs border border-slate-300 shadow-2xs transition-colors"
+            >
+              Revisar detalles
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Top Controls Header */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2.5">
-            <Users className="w-6 h-6 text-indigo-600" />
-            <span>Directorio de Socios • Carecueca Teatro</span>
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Gestión de elenco, permisos de usuario y cuotas mensuales
+          <div className="flex items-center space-x-2">
+            <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2.5">
+              <Users className="w-6 h-6 text-indigo-600" />
+              <span>Directorio de Socios • Carecueca Teatro</span>
+            </h2>
+            <span className="hidden sm:inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <ShieldCheck className="w-3 h-3 mr-1" />
+              Persistencia Robusta Activa
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Gestión de elenco ({members.length} socios registrados) • Sincronización en tiempo real y protección contra pérdidas
           </p>
         </div>
 
-        <div className="flex items-center space-x-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={openRecoveryModal}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors border border-slate-200"
+            title="Ver historial de respaldos y recuperar socios anteriores"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Recuperación & Bóveda</span>
+            {recoverableCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold animate-pulse">
+                {recoverableCount}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={openAddModal}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors shadow-sm"
+            className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm"
           >
             <UserPlus className="w-4 h-4" />
             <span>+ Agregar Socio</span>
           </button>
+        </div>
+      </div>
+
+      {/* Search and Filters Bar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre, RUT o email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <div className="flex items-center space-x-1.5 text-xs text-slate-600">
+            <span>Rol:</span>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer"
+            >
+              <option value="Todos">Todos</option>
+              <option value="Actor/Actriz">Actor / Actriz</option>
+              <option value="Director/a">Director / a</option>
+              <option value="Músico">Músico</option>
+              <option value="Técnico/a">Técnico / a</option>
+              <option value="Producción">Producción</option>
+              <option value="Dramaturgo/a">Dramaturgo / a</option>
+              <option value="Gestor/a">Gestor / a</option>
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-1.5 text-xs text-slate-600">
+            <span>Estado:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer"
+            >
+              <option value="Todos">Todos</option>
+              <option value="Activo">Activo</option>
+              <option value="Moroso">Moroso</option>
+              <option value="Exento">Exento</option>
+              <option value="Honorario">Honorario</option>
+              <option value="Inactivo">Inactivo</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -167,7 +379,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <h3 className="font-bold text-slate-900 text-base">{member.name}</h3>
-                    <p className="text-xs text-slate-500 font-mono mt-0.5">RUT: {member.rut}</p>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">RUT: {member.rut || 'Sin RUT'}</p>
                   </div>
                   {getStatusBadge(member.memberStatus)}
                 </div>
@@ -180,12 +392,12 @@ export const MembersList: React.FC<MembersListProps> = ({
 
                   <div className="flex items-center text-slate-600">
                     <Mail className="w-4 h-4 text-slate-400 mr-2.5 shrink-0" />
-                    <span className="truncate">{member.email}</span>
+                    <span className="truncate">{member.email || 'Sin correo'}</span>
                   </div>
 
                   <div className="flex items-center text-slate-600">
                     <Phone className="w-4 h-4 text-slate-400 mr-2.5 shrink-0" />
-                    <span>{member.phone}</span>
+                    <span>{member.phone || 'Sin teléfono'}</span>
                   </div>
                 </div>
 
@@ -217,9 +429,9 @@ export const MembersList: React.FC<MembersListProps> = ({
 
                   {currentUserRole === 'Admin' && (
                     <button
-                      onClick={() => onDeleteMember(member.id)}
+                      onClick={() => setMemberToDelete(member)}
                       className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors"
-                      title="Eliminar Socio"
+                      title="Eliminar Socio (Se guarda en papelera)"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -234,13 +446,24 @@ export const MembersList: React.FC<MembersListProps> = ({
             <div className="p-3 bg-indigo-50 text-indigo-600 rounded-full">
               <UserPlus className="w-6 h-6" />
             </div>
-            <p className="text-slate-700 font-semibold text-sm">No hay socios registrados en el sistema.</p>
-            <button
-              onClick={openAddModal}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors shadow-sm"
-            >
-              + Agregar socio
-            </button>
+            <p className="text-slate-700 font-semibold text-sm">No hay socios que coincidan con la búsqueda.</p>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={openAddModal}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm"
+              >
+                + Agregar socio
+              </button>
+              {recoverableCount > 0 && (
+                <button
+                  onClick={openRecoveryModal}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm flex items-center space-x-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Recuperar ({recoverableCount})</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -256,7 +479,7 @@ export const MembersList: React.FC<MembersListProps> = ({
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center space-x-3 mb-5">
+            <div className="flex items-center space-x-3 mb-4">
               <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
                 <Users className="w-6 h-6" />
               </div>
@@ -264,9 +487,35 @@ export const MembersList: React.FC<MembersListProps> = ({
                 <h3 className="text-base font-bold text-slate-900">
                   {editingMember ? 'Editar Socio' : 'Nuevo Socio'}
                 </h3>
-                <p className="text-sm text-slate-500">Agrupación Carecueca Teatro</p>
+                <p className="text-xs text-slate-500">Agrupación Carecueca Teatro • Guardado Seguro</p>
               </div>
             </div>
+
+            {/* DRAFT RESTORATION NOTICE */}
+            {hasDraft && !editingMember && (
+              <div className="mb-4 bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between text-xs text-amber-900">
+                <div className="flex items-center space-x-2">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Se detectó un borrador previo no guardado.</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={applyDraft}
+                    className="font-bold text-indigo-600 hover:underline"
+                  >
+                    Restaurar borrador
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { clearFormDraft(); setHasDraft(false); }}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4 text-sm">
               
@@ -277,7 +526,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                   required
                   placeholder="Ej: Valentina Henríquez"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); handleFieldChange('name', e.target.value); }}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -290,8 +539,12 @@ export const MembersList: React.FC<MembersListProps> = ({
                     required
                     placeholder="18.123.456-K"
                     value={rut}
-                    onChange={(e) => setRut(e.target.value)}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    onChange={(e) => {
+                      const formatted = formatRUT(e.target.value);
+                      setRut(formatted);
+                      handleFieldChange('rut', formatted);
+                    }}
+                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
 
@@ -301,7 +554,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                     type="text"
                     placeholder="+56 9 1234 5678"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => { setPhone(e.target.value); handleFieldChange('phone', e.target.value); }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -314,7 +567,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                   required
                   placeholder="socio@carecuecateatro.cl"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); handleFieldChange('email', e.target.value); }}
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -324,7 +577,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                   <label className="block font-semibold text-slate-800 mb-1">Rol en Elenco</label>
                   <select
                     value={troupeRole}
-                    onChange={(e) => setTroupeRole(e.target.value as TroupeRole)}
+                    onChange={(e) => { setTroupeRole(e.target.value as TroupeRole); handleFieldChange('troupeRole', e.target.value); }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="Actor/Actriz">Actor / Actriz</option>
@@ -341,7 +594,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                   <label className="block font-semibold text-slate-800 mb-1">Estado de Socio</label>
                   <select
                     value={memberStatus}
-                    onChange={(e) => setMemberStatus(e.target.value as MemberStatus)}
+                    onChange={(e) => { setMemberStatus(e.target.value as MemberStatus); handleFieldChange('memberStatus', e.target.value); }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="Activo">Activo</option>
@@ -358,7 +611,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                   <label className="block font-semibold text-slate-800 mb-1">Rol en Sistema</label>
                   <select
                     value={userRole}
-                    onChange={(e) => setUserRole(e.target.value as UserRole)}
+                    onChange={(e) => { setUserRole(e.target.value as UserRole); handleFieldChange('userRole', e.target.value); }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="Socio">Socio</option>
@@ -372,29 +625,111 @@ export const MembersList: React.FC<MembersListProps> = ({
                   <input
                     type="number"
                     value={customQuota}
-                    onChange={(e) => setCustomQuota(Number(e.target.value))}
+                    onChange={(e) => { setCustomQuota(Number(e.target.value)); handleFieldChange('customQuota', Number(e.target.value)); }}
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
               </div>
 
-              <div className="pt-3 flex items-center justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setMemberModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-sm transition-colors"
-                >
-                  Guardar
-                </button>
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">Observaciones / Notas</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Elenco obra La Cueca Trágica..."
+                  value={notes}
+                  onChange={(e) => { setNotes(e.target.value); handleFieldChange('notes', e.target.value); }}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500 flex items-center">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 mr-1" />
+                  Auto-guardado en Nube y Bóveda
+                </span>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setMemberModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center space-x-1.5"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Guardando...</span>
+                      </>
+                    ) : (
+                      <span>{editingMember ? 'Actualizar Socio' : 'Guardar Socio'}</span>
+                    )}
+                  </button>
+                </div>
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION MODAL FOR DELETING MEMBER */}
+      {memberToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-xl">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">¿Eliminar socio?</h3>
+                <p className="text-xs text-slate-500">Carecueca Teatro • Protección de Datos</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              ¿Estás seguro de quitar a <strong className="text-slate-900">{memberToDelete.name}</strong> ({memberToDelete.troupeRole}) del listado activo?
+            </p>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-1">
+              <div className="font-semibold text-slate-800 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Tranquilo, no se perderán sus datos:</span>
+              </div>
+              <p>
+                El socio se moverá a la <strong>Papelera / Bóveda de Seguridad</strong>. Podrás restaurarlo en cualquier momento desde el botón <em>Recuperación & Bóveda</em>.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setMemberToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center space-x-1.5"
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Eliminando...</span>
+                  </>
+                ) : (
+                  <span>Mover a Papelera</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -331,6 +331,59 @@ _Tesorería Carecueca Teatro_`;
         </div>
       </div>
 
+      {/* Real-time Period Summary KPI Cards */}
+      {(() => {
+        const totalCollected = periodDues.reduce((sum, d) => sum + (d.amountPaid || 0), 0);
+        const totalExpected = periodDues.reduce((sum, d) => d.status === 'Exento' ? sum : sum + (d.amount || 0), 0);
+        const paidCount = periodDues.filter((d) => d.status === 'Pagado').length;
+        const pendingCount = periodDues.filter((d) => d.status === 'Pendiente' || d.status === 'Atrasado' || d.status === 'Parcial').length;
+        const pendingBalance = Math.max(0, totalExpected - totalCollected);
+        const percentCollected = totalExpected > 0 ? Math.min(100, Math.round((totalCollected / totalExpected) * 100)) : 0;
+
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Total Recaudado</span>
+              <div className="flex items-baseline space-x-2 mt-1">
+                <span className="text-lg md:text-xl font-extrabold text-emerald-700">{formatCLP(totalCollected)}</span>
+                <span className="text-xs font-bold text-emerald-600">{percentCollected}%</span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+                <div 
+                  className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${percentCollected}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Saldo Pendiente</span>
+              <span className="text-lg md:text-xl font-extrabold text-amber-700 block mt-1">{formatCLP(pendingBalance)}</span>
+              <span className="text-[11px] text-slate-400 mt-1 block">De {formatCLP(totalExpected)} proyectado</span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Cuotas Pagadas</span>
+              <div className="flex items-baseline space-x-1.5 mt-1">
+                <span className="text-lg md:text-xl font-extrabold text-slate-900">{paidCount}</span>
+                <span className="text-xs text-slate-500 font-medium">de {periodDues.length} socios</span>
+              </div>
+              <span className="text-[11px] text-emerald-600 font-semibold mt-1 block">
+                {paidCount === periodDues.length && periodDues.length > 0 ? '¡100% al día!' : `${periodDues.length - paidCount} restantes`}
+              </span>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Cuotas Pendientes / Moras</span>
+              <span className={`text-lg md:text-xl font-extrabold block mt-1 ${pendingCount > 0 ? 'text-rose-600' : 'text-slate-700'}`}>
+                {pendingCount}
+              </span>
+              <span className="text-[11px] text-slate-400 mt-1 block">Requieren seguimiento</span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Filters & Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
         

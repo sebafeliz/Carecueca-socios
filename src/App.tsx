@@ -8,6 +8,7 @@ import { MemberPortalView } from './components/MemberPortalView';
 import { RemindersModal } from './components/RemindersModal';
 import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { RolesAndPermissionsModal } from './components/RolesAndPermissionsModal';
+import { DataRecoveryModal } from './components/DataRecoveryModal';
 
 import { 
   Member, 
@@ -27,6 +28,8 @@ import {
 } from './data/initialData';
 import { 
   seedInitialDataIfNeeded, 
+  purgeAllSampleData,
+  isSampleRecord,
   subscribeCollection, 
   saveMemberToFirestore, 
   deleteMemberFromFirestore, 
@@ -34,8 +37,15 @@ import {
   batchSaveDuesToFirestore, 
   addNotificationToFirestore, 
   updateNotificationInFirestore, 
-  addBackupLogToFirestore 
+  addBackupLogToFirestore,
+  removeDeletedId
 } from './lib/firebase';
+import { 
+  scanForRecoverableMembers, 
+  saveToMemberVault, 
+  recordDeletedMember, 
+  RecoveredMemberItem 
+} from './lib/recoveryService';
 import { 
   requestPushPermission, 
   sendBrowserPushNotification, 
@@ -63,10 +73,13 @@ export default function App() {
       const saved = localStorage.getItem('carecueca_members');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return dedupeById(parsed);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((m) => !isSampleRecord(m));
+          return dedupeById(cleaned);
+        }
       }
     } catch (e) {}
-    return dedupeById(INITIAL_MEMBERS);
+    return dedupeById(INITIAL_MEMBERS.filter((m) => !isSampleRecord(m)));
   });
 
   const [dues, setDues] = useState<DuePayment[]>(() => {
@@ -74,10 +87,13 @@ export default function App() {
       const saved = localStorage.getItem('carecueca_dues');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return dedupeById(parsed);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((d) => !isSampleRecord(d));
+          return dedupeById(cleaned);
+        }
       }
     } catch (e) {}
-    return dedupeById(INITIAL_DUES);
+    return dedupeById(INITIAL_DUES.filter((d) => !isSampleRecord(d)));
   });
 
   const [periods, setPeriods] = useState<QuotaPeriod[]>(() => {
@@ -107,10 +123,13 @@ export default function App() {
       const saved = localStorage.getItem('carecueca_backup_logs');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return dedupeById(parsed);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((b) => !isSampleRecord(b));
+          return dedupeById(cleaned);
+        }
       }
     } catch (e) {}
-    return dedupeById(INITIAL_BACKUPS);
+    return dedupeById(INITIAL_BACKUPS.filter((b) => !isSampleRecord(b)));
   });
 
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>(INITIAL_PERIODS[INITIAL_PERIODS.length - 1]?.id || 'per-2026-08');
@@ -120,6 +139,19 @@ export default function App() {
   const [remindersModalOpen, setRemindersModalOpen] = useState(false);
   const [notificationsDrawerOpen, setNotificationsDrawerOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
+
+  // Recoverable members found in storage/history
+  const [recoverableItems, setRecoverableItems] = useState<RecoveredMemberItem[]>([]);
+
+  const runScan = () => {
+    const found = scanForRecoverableMembers(members);
+    setRecoverableItems(found);
+  };
+
+  useEffect(() => {
+    runScan();
+  }, [members]);
 
   // Toast feedback state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -131,7 +163,7 @@ export default function App() {
 
   // 1. Initial Firestore setup & Real-time listeners
   useEffect(() => {
-    seedInitialDataIfNeeded();
+    purgeAllSampleData();
 
     const unsubMembers = subscribeCollection<Member>('members', INITIAL_MEMBERS, (data) => setMembers(data));
     const unsubDues = subscribeCollection<DuePayment>('dues', INITIAL_DUES, (data) => setDues(data));
@@ -176,6 +208,10 @@ export default function App() {
       return next;
     });
 
+    // Ensure it is stored in permanent Safety Vault
+    saveToMemberVault([memberToSave]);
+    removeDeletedId("members", memberToSave.id);
+
     // Auto-generate dues for existing open periods if this is a newly registered member
     if (isNew && memberToSave.memberStatus !== 'Inactivo') {
       const generatedDues: DuePayment[] = periods.map((p) => {
@@ -209,14 +245,24 @@ export default function App() {
     }
 
     try {
-      await saveMemberToFirestore(memberToSave);
+      const success = await saveMemberToFirestore(memberToSave);
+      if (success) {
+        showToast(`Socio ${memberToSave.name} guardado y asegurado en la nube.`);
+      } else {
+        showToast(`Socio ${memberToSave.name} guardado en bóveda local (modo offline).`);
+      }
     } catch (err) {
       console.warn("Firestore member save failed:", err);
+      showToast(`Socio ${memberToSave.name} guardado en bóveda local.`);
     }
-    showToast(`Socio ${memberToSave.name} guardado con éxito.`);
   };
 
   const handleDeleteMember = async (memberId: string) => {
+    const targetMember = members.find((m) => m.id === memberId);
+    if (targetMember) {
+      recordDeletedMember(targetMember);
+    }
+
     setMembers((prev) => {
       const next = prev.filter((m) => m.id !== memberId);
       try { localStorage.setItem('carecueca_members', JSON.stringify(next)); } catch (e) {}
@@ -232,7 +278,40 @@ export default function App() {
     } catch (err) {
       console.warn("Firestore member delete failed:", err);
     }
-    showToast("Socio eliminado del sistema.");
+    showToast("Socio movido a papelera de seguridad (puedes restaurarlo).");
+    runScan();
+  };
+
+  const handleRestoreMember = async (memberToRestore: Member) => {
+    setMembers((prev) => {
+      const exists = prev.some((m) => m.id === memberToRestore.id);
+      const next = exists ? prev.map((m) => (m.id === memberToRestore.id ? memberToRestore : m)) : [...prev, memberToRestore];
+      try { localStorage.setItem('carecueca_members', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    saveToMemberVault([memberToRestore]);
+    removeDeletedId("members", memberToRestore.id);
+    await saveMemberToFirestore(memberToRestore);
+    showToast(`Socio ${memberToRestore.name} restaurado y sincronizado.`);
+    runScan();
+  };
+
+  const handleRestoreAll = async (membersToRestore: Member[]) => {
+    setMembers((prev) => {
+      const map = new Map<string, Member>();
+      prev.forEach((m) => map.set(m.id, m));
+      membersToRestore.forEach((m) => map.set(m.id, m));
+      const next = Array.from(map.values());
+      try { localStorage.setItem('carecueca_members', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    saveToMemberVault(membersToRestore);
+    for (const m of membersToRestore) {
+      removeDeletedId("members", m.id);
+      await saveMemberToFirestore(m);
+    }
+    showToast(`¡Se restauraron ${membersToRestore.length} socios exitosamente!`);
+    runScan();
   };
 
   // Due Update Action
@@ -454,6 +533,9 @@ export default function App() {
             onSaveMember={handleSaveMember}
             onDeleteMember={handleDeleteMember}
             openRolesModal={() => setRolesModalOpen(true)}
+            openRecoveryModal={() => { runScan(); setRecoveryModalOpen(true); }}
+            recoverableCount={recoverableItems.length}
+            onQuickRestoreAll={() => handleRestoreAll(recoverableItems.map((i) => i.member))}
           />
         )}
 
@@ -508,6 +590,16 @@ export default function App() {
         onClose={() => setRolesModalOpen(false)}
         currentUserRole={currentUserRole}
         setCurrentUserRole={setCurrentUserRole}
+      />
+
+      <DataRecoveryModal
+        isOpen={recoveryModalOpen}
+        onClose={() => setRecoveryModalOpen(false)}
+        recoverableItems={recoverableItems}
+        onRestoreMember={handleRestoreMember}
+        onRestoreAll={handleRestoreAll}
+        onRefreshScan={runScan}
+        activeCount={members.length}
       />
 
       {/* Footer */}

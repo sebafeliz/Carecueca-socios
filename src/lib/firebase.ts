@@ -9,55 +9,143 @@ import {
   deleteDoc, 
   onSnapshot, 
   query, 
-  orderBy, 
-  addDoc,
   writeBatch
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import config from "../../firebase-applet-config.json";
 import { Member, DuePayment, AppNotification, BackupLog } from "../types";
-import { INITIAL_MEMBERS, INITIAL_DUES, INITIAL_NOTIFICATIONS, INITIAL_BACKUPS } from "../data/initialData";
+import { INITIAL_MEMBERS, INITIAL_DUES, INITIAL_NOTIFICATIONS, INITIAL_BACKUPS, SAMPLE_MEMBER_IDS, SAMPLE_DUE_PREFIXES } from "../data/initialData";
+import { saveToMemberVault, purgeSampleMembersFromVault } from "./recoveryService";
 
 // Initialize Firebase
 const firebaseApp = !getApps().length ? initializeApp(config) : getApp();
 export const db = getFirestore(firebaseApp, config.firestoreDatabaseId || undefined);
 export const auth = getAuth(firebaseApp);
 
-// Seed initial data to Firestore if collections are empty
-export async function seedInitialDataIfNeeded() {
-  try {
-    const membersSnap = await getDocs(collection(db, "members"));
-    if (membersSnap.empty && INITIAL_MEMBERS.length > 0) {
-      const batch = writeBatch(db);
-      INITIAL_MEMBERS.forEach((member) => {
-        const ref = doc(db, "members", member.id);
-        batch.set(ref, member);
-      });
-      await batch.commit();
-      console.log("Initial data seeded into Firestore.");
+export function isSampleRecord(item: any): boolean {
+  if (!item || !item.id) return false;
+  const idStr = String(item.id);
+  if (SAMPLE_MEMBER_IDS.includes(idStr)) return true;
+  if (SAMPLE_DUE_PREFIXES.some((prefix) => idStr.startsWith(prefix))) return true;
+  if (idStr.startsWith("bak-")) return true;
+  if (item.memberId && SAMPLE_MEMBER_IDS.includes(String(item.memberId))) return true;
+  return false;
+}
+
+// Retry helper for cloud Firestore operations
+async function retryFirestoreOp<T>(fn: () => Promise<T>, maxRetries = 3, delayMs = 300): Promise<T> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * Math.pow(2, attempt - 1)));
+      }
     }
+  }
+  throw lastError;
+}
+
+// Purge all demo/sample data from Firestore and local storage caches
+export async function purgeAllSampleData() {
+  try {
+    // 1. Purge sample members from Firestore
+    for (const memId of SAMPLE_MEMBER_IDS) {
+      deleteDoc(doc(db, "members", memId)).catch(() => {});
+    }
+
+    // 2. Purge sample dues from Firestore
+    const duesSnap = await getDocs(collection(db, "dues")).catch(() => null);
+    if (duesSnap && !duesSnap.empty) {
+      duesSnap.docs.forEach((d) => {
+        const data = d.data();
+        if (isSampleRecord({ id: d.id, ...data })) {
+          deleteDoc(doc(db, "dues", d.id)).catch(() => {});
+        }
+      });
+    }
+
+    // 3. Purge sample backup logs from Firestore
+    for (const bakId of ["bak-1", "bak-2", "bak-3"]) {
+      deleteDoc(doc(db, "backup_logs", bakId)).catch(() => {});
+    }
+
+    // 4. Purge local storage caches
+    purgeSampleMembersFromVault();
+
+    ["members", "dues", "backup_logs"].forEach((colName) => {
+      try {
+        const raw = localStorage.getItem(`carecueca_${colName}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((item) => !isSampleRecord(item));
+            localStorage.setItem(`carecueca_${colName}`, JSON.stringify(cleaned));
+          }
+        }
+      } catch (e) {}
+    });
+
+    localStorage.setItem("carecueca_sample_data_purged", "true");
+    console.log("All sample records purged from database and local storage.");
   } catch (error) {
-    console.warn("Firestore seed check skipped or operating offline:", error);
+    console.warn("Purge sample data encountered error:", error);
   }
 }
 
-// Subscribe helper for real-time Firestore sync with fallback & local storage mirror
+// Backwards compatibility stub (never seeds sample data anymore)
+export async function seedInitialDataIfNeeded() {
+  await purgeAllSampleData();
+}
+
+
+// Helper to track intentionally deleted IDs so the smart merge doesn't resurrect them
+function getDeletedIds(collectionName: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(`carecueca_deleted_ids_${collectionName}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return new Set(parsed);
+    }
+  } catch (e) {}
+  return new Set();
+}
+
+export function recordDeletedId(collectionName: string, id: string) {
+  try {
+    const ids = getDeletedIds(collectionName);
+    ids.add(id);
+    localStorage.setItem(`carecueca_deleted_ids_${collectionName}`, JSON.stringify(Array.from(ids)));
+  } catch (e) {}
+}
+
+export function removeDeletedId(collectionName: string, id: string) {
+  try {
+    const ids = getDeletedIds(collectionName);
+    ids.delete(id);
+    localStorage.setItem(`carecueca_deleted_ids_${collectionName}`, JSON.stringify(Array.from(ids)));
+  } catch (e) {}
+}
+
+// Resilient Subscribe helper for real-time Firestore sync with two-way merge
 export function subscribeCollection<T extends { id: string }>(
   collectionName: string,
   initialFallback: T[],
   onUpdate: (data: T[]) => void
 ) {
-  const loadLocalFallback = () => {
+  const loadLocalFallback = (): T[] => {
     try {
       const stored = localStorage.getItem(`carecueca_${collectionName}`);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed as T[];
+        if (Array.isArray(parsed)) return parsed.filter((item) => !isSampleRecord(item)) as T[];
       }
     } catch (e) {
       console.warn(`Error reading localStorage for ${collectionName}:`, e);
     }
-    return initialFallback;
+    return initialFallback.filter((item) => !isSampleRecord(item));
   };
 
   try {
@@ -67,23 +155,79 @@ export function subscribeCollection<T extends { id: string }>(
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        const localItems = loadLocalFallback();
+        const deletedIds = getDeletedIds(collectionName);
+
         if (snapshot.empty) {
-          const fallback = loadLocalFallback();
-          onUpdate(fallback);
-        } else {
-          const rawItems: T[] = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as unknown as T));
-          const map = new Map<string, T>();
-          rawItems.forEach((item) => {
-            if (item && item.id) {
-              map.set(item.id, item);
-            }
-          });
-          const items = Array.from(map.values());
-          try {
-            localStorage.setItem(`carecueca_${collectionName}`, JSON.stringify(items));
-          } catch (e) {}
-          onUpdate(items);
+          // If Firestore collection is empty, preserve all non-sample local items!
+          const nonDeletedLocal = localItems.filter(
+            (item) => item && item.id && !deletedIds.has(item.id) && !isSampleRecord(item)
+          );
+          onUpdate(nonDeletedLocal);
+          return;
         }
+
+        // Firestore documents (auto-delete any stale sample docs from cloud)
+        const firestoreItems: T[] = [];
+        snapshot.docs.forEach((d) => {
+          const itemData = { id: d.id, ...d.data() };
+          if (isSampleRecord(itemData)) {
+            deleteDoc(doc(db, collectionName, d.id)).catch(() => {});
+          } else {
+            firestoreItems.push(itemData as unknown as T);
+          }
+        });
+
+        // Smart Two-Way Merge:
+        // 1. Build map from Firestore items (excluding intentionally deleted IDs and sample records)
+        const mergedMap = new Map<string, T>();
+        firestoreItems.forEach((item) => {
+          if (item && item.id && !deletedIds.has(item.id) && !isSampleRecord(item)) {
+            mergedMap.set(item.id, item);
+          }
+        });
+
+        // 2. CRITICAL: Merge in local items that are not yet in Firestore!
+        // This ensures local additions or edits are NEVER wiped out by a snapshot
+        localItems.forEach((localItem) => {
+          if (!localItem || !localItem.id || deletedIds.has(localItem.id) || isSampleRecord(localItem)) return;
+
+          if (!mergedMap.has(localItem.id)) {
+            // Local item not present in cloud yet: KEEP IT and push to Firestore
+            mergedMap.set(localItem.id, localItem);
+            // Silently upload to Firestore so it is persistently stored in cloud
+            const docRef = doc(db, collectionName, localItem.id);
+            setDoc(docRef, cleanForFirestore(localItem)).catch((e) => {
+              console.warn(`Background push to Firestore failed for ${collectionName}/${localItem.id}:`, e);
+            });
+          } else {
+            // Exists in both: compare modification timestamp
+            const remoteItem = mergedMap.get(localItem.id) as any;
+            const localAny = localItem as any;
+            const localTime = localAny.updatedAt || localAny.createdAt;
+            const remoteTime = remoteItem?.updatedAt || remoteItem?.createdAt;
+
+            if (localTime && (!remoteTime || localTime > remoteTime)) {
+              mergedMap.set(localItem.id, localItem);
+              const docRef = doc(db, collectionName, localItem.id);
+              setDoc(docRef, cleanForFirestore(localItem)).catch(() => {});
+            }
+          }
+        });
+
+        const mergedList = Array.from(mergedMap.values()).filter((item) => !isSampleRecord(item));
+
+        // Update local cache safely
+        try {
+          localStorage.setItem(`carecueca_${collectionName}`, JSON.stringify(mergedList));
+        } catch (e) {}
+
+        // If this is members, also update the permanent Safety Vault
+        if (collectionName === "members") {
+          saveToMemberVault(mergedList as unknown as Member[]);
+        }
+
+        onUpdate(mergedList);
       },
       (error) => {
         console.warn(`Firestore subscription error on ${collectionName}:`, error);
@@ -100,7 +244,7 @@ export function subscribeCollection<T extends { id: string }>(
 }
 
 // Helper to clean undefined values before sending to Firestore
-function cleanForFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
+export function cleanForFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
   const cleaned: Record<string, any> = {};
   Object.keys(obj).forEach((key) => {
     const val = obj[key];
@@ -111,21 +255,36 @@ function cleanForFirestore<T extends Record<string, any>>(obj: T): Record<string
   return cleaned;
 }
 
-// Firestore Operations for Members
-export async function saveMemberToFirestore(member: Member): Promise<void> {
+// Firestore Operations for Members with robust retries
+export async function saveMemberToFirestore(member: Member): Promise<boolean> {
   try {
-    const docRef = doc(db, "members", member.id);
-    await setDoc(docRef, cleanForFirestore(member));
+    await retryFirestoreOp(async () => {
+      const docRef = doc(db, "members", member.id);
+      await setDoc(docRef, cleanForFirestore(member));
+    });
+    // Remove from deleted tracker in case it was previously deleted
+    removeDeletedId("members", member.id);
+    // Also save to permanent Safety Vault
+    saveToMemberVault([member]);
+    return true;
   } catch (err) {
     console.error("Error saving member to Firestore:", err);
+    // Still save to local vault so it's never lost
+    saveToMemberVault([member]);
+    return false;
   }
 }
 
-export async function deleteMemberFromFirestore(memberId: string): Promise<void> {
+export async function deleteMemberFromFirestore(memberId: string): Promise<boolean> {
   try {
-    await deleteDoc(doc(db, "members", memberId));
+    recordDeletedId("members", memberId);
+    await retryFirestoreOp(async () => {
+      await deleteDoc(doc(db, "members", memberId));
+    });
+    return true;
   } catch (err) {
     console.error("Error deleting member from Firestore:", err);
+    return false;
   }
 }
 
