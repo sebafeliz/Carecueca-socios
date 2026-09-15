@@ -92,7 +92,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* Top Controls Header */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-3.5">
-          <CarecuecaLogoIcon className="w-10 h-10 rounded-xl shadow-sm flex-shrink-0" />
+          <CarecuecaLogoIcon className="h-10 w-auto max-w-[140px] object-contain flex-shrink-0" />
           <div>
             <h1 className="text-lg font-bold text-slate-900">Resumen Financiero - {currentPeriod?.title}</h1>
             <p className="text-sm text-slate-500 mt-0.5">Carecueca Teatro • Sincronizado en tiempo real</p>

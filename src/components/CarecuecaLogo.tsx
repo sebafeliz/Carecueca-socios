@@ -7,56 +7,37 @@ interface LogoProps {
   lightText?: boolean;
 }
 
-export const CarecuecaLogoIcon: React.FC<{ className?: string; inverted?: boolean }> = ({ className = "w-8 h-8", inverted = false }) => {
+export const CarecuecaLogoIcon: React.FC<{ className?: string; inverted?: boolean }> = ({ 
+  className = "h-9 w-auto", 
+  inverted = false 
+}) => {
   return (
     <img 
-      src="/logo.png" 
-      onError={(e) => {
-        // Fallback to direct ImgBB link if local fails
-        (e.target as HTMLImageElement).src = "https://i.ibb.co/k63948Wb/LOGO-BLANCO.png";
-      }}
+      src={inverted ? "/logo-white.png" : "/logo.png"} 
       alt="Carecueca Teatro Logo" 
-      className={`object-contain ${inverted ? 'filter invert brightness-0' : ''} ${className}`}
+      className={`object-contain select-none ${className}`}
       referrerPolicy="no-referrer"
     />
   );
 };
 
 export const CarecuecaLogo: React.FC<LogoProps> = ({
+  className = "",
   size = 'md',
-  showText = true,
-  lightText = true
+  lightText = false
 }) => {
-  const iconSizes = {
-    sm: 'w-8 h-8',
-    md: 'w-10 h-10',
-    lg: 'w-14 h-14'
-  };
-
-  const textSizes = {
-    sm: 'text-sm',
-    md: 'text-base',
-    lg: 'text-xl'
+  const sizeClasses = {
+    sm: 'h-8',
+    md: 'h-10',
+    lg: 'h-14'
   };
 
   return (
-    <div className="flex items-center space-x-2.5 select-none">
-      <div className="relative group flex-shrink-0">
-        <CarecuecaLogoIcon 
-          inverted={!lightText}
-          className={`${iconSizes[size]} transition-transform duration-200 group-hover:scale-105`} 
-        />
-      </div>
-      {showText && (
-        <div className="flex items-center space-x-1.5 leading-none">
-          <span className={`font-black tracking-tight ${textSizes[size]} ${lightText ? 'text-white' : 'text-slate-900'}`}>
-            Carecueca
-          </span>
-          <span className={`font-light tracking-wide ${textSizes[size]} text-amber-600`}>
-            Teatro
-          </span>
-        </div>
-      )}
+    <div className={`flex items-center select-none ${className}`}>
+      <CarecuecaLogoIcon 
+        inverted={lightText}
+        className={`${sizeClasses[size]} w-auto object-contain transition-transform duration-150 hover:scale-[1.02]`} 
+      />
     </div>
   );
 };
