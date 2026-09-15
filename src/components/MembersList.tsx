@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, 
-  Search, 
   UserPlus, 
   ShieldCheck, 
   Phone, 
@@ -62,10 +61,6 @@ export const MembersList: React.FC<MembersListProps> = ({
   recoverableCount,
   onQuickRestoreAll
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('Todos');
-  const [statusFilter, setStatusFilter] = useState<string>('Todos');
-
   // Modal State
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -203,18 +198,8 @@ export const MembersList: React.FC<MembersListProps> = ({
     }
   };
 
-  // Filter members
-  const filteredMembers = members.filter((m) => {
-    const matchesSearch = 
-      m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.rut.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesRole = roleFilter === 'Todos' || m.troupeRole === roleFilter;
-    const matchesStatus = statusFilter === 'Todos' || m.memberStatus === statusFilter;
-
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+  // Filter members (direct list)
+  const filteredMembers = members;
 
   const getStatusBadge = (status: MemberStatus) => {
     switch (status) {
@@ -287,9 +272,6 @@ export const MembersList: React.FC<MembersListProps> = ({
               Persistencia Robusta Activa
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Gestión de elenco ({members.length} socios registrados) • Sincronización en tiempo real y protección contra pérdidas
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -314,56 +296,6 @@ export const MembersList: React.FC<MembersListProps> = ({
             <UserPlus className="w-4 h-4" />
             <span>+ Agregar Socio</span>
           </button>
-        </div>
-      </div>
-
-      {/* Search and Filters Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Buscar por nombre, RUT o email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          <div className="flex items-center space-x-1.5 text-xs text-slate-600">
-            <span>Rol:</span>
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer"
-            >
-              <option value="Todos">Todos</option>
-              <option value="Actor/Actriz">Actor / Actriz</option>
-              <option value="Director/a">Director / a</option>
-              <option value="Músico">Músico</option>
-              <option value="Técnico/a">Técnico / a</option>
-              <option value="Producción">Producción</option>
-              <option value="Dramaturgo/a">Dramaturgo / a</option>
-              <option value="Gestor/a">Gestor / a</option>
-            </select>
-          </div>
-
-          <div className="flex items-center space-x-1.5 text-xs text-slate-600">
-            <span>Estado:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer"
-            >
-              <option value="Todos">Todos</option>
-              <option value="Activo">Activo</option>
-              <option value="Moroso">Moroso</option>
-              <option value="Exento">Exento</option>
-              <option value="Honorario">Honorario</option>
-              <option value="Inactivo">Inactivo</option>
-            </select>
-          </div>
         </div>
       </div>
 

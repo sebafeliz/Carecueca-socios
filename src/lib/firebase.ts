@@ -1,6 +1,7 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { 
   getFirestore, 
+  initializeFirestore,
   collection, 
   getDocs, 
   doc, 
@@ -9,7 +10,9 @@ import {
   deleteDoc, 
   onSnapshot, 
   query, 
-  writeBatch
+  writeBatch,
+  getDocFromServer,
+  Firestore
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import config from "../../firebase-applet-config.json";
@@ -18,9 +21,40 @@ import { INITIAL_MEMBERS, INITIAL_DUES, INITIAL_NOTIFICATIONS, INITIAL_BACKUPS, 
 import { saveToMemberVault, purgeSampleMembersFromVault } from "./recoveryService";
 
 // Initialize Firebase
-const firebaseApp = !getApps().length ? initializeApp(config) : getApp();
-export const db = getFirestore(firebaseApp, config.firestoreDatabaseId || undefined);
+const firebaseApp: FirebaseApp = !getApps().length ? initializeApp(config) : getApp();
+
+// In preview/iframe and containerized environments, WebChannel stream connections
+// can drop and trigger "FirebaseError: [code=unavailable]".
+// Enabling experimentalForceLongPolling guarantees stable HTTP long-polling transport.
+let firestoreInstance: Firestore;
+try {
+  firestoreInstance = initializeFirestore(
+    firebaseApp,
+    {
+      experimentalForceLongPolling: true,
+    },
+    config.firestoreDatabaseId || undefined
+  );
+} catch {
+  firestoreInstance = getFirestore(firebaseApp, config.firestoreDatabaseId || undefined);
+}
+
+export const db: Firestore = firestoreInstance;
 export const auth = getAuth(firebaseApp);
+
+// Test connection on boot as recommended for Cloud Firestore
+export async function testFirestoreConnection(): Promise<boolean> {
+  try {
+    await getDocFromServer(doc(db, "test", "connection"));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("the client is offline")) {
+      console.warn("Firestore running in offline/cache mode. Reconnecting...");
+    }
+    return false;
+  }
+}
+testFirestoreConnection();
 
 export function isSampleRecord(item: any): boolean {
   if (!item || !item.id) return false;

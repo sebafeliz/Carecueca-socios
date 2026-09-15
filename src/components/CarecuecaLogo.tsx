@@ -7,7 +7,7 @@ interface LogoProps {
   lightText?: boolean;
 }
 
-export const CarecuecaLogoIcon: React.FC<{ className?: string }> = ({ className = "w-8 h-8" }) => {
+export const CarecuecaLogoIcon: React.FC<{ className?: string; inverted?: boolean }> = ({ className = "w-8 h-8", inverted = false }) => {
   return (
     <img 
       src="/logo.png" 
@@ -16,7 +16,7 @@ export const CarecuecaLogoIcon: React.FC<{ className?: string }> = ({ className 
         (e.target as HTMLImageElement).src = "https://i.ibb.co/k63948Wb/LOGO-BLANCO.png";
       }}
       alt="Carecueca Teatro Logo" 
-      className={`object-contain ${className}`}
+      className={`object-contain ${inverted ? 'filter invert brightness-0' : ''} ${className}`}
       referrerPolicy="no-referrer"
     />
   );
@@ -42,20 +42,18 @@ export const CarecuecaLogo: React.FC<LogoProps> = ({
   return (
     <div className="flex items-center space-x-2.5 select-none">
       <div className="relative group flex-shrink-0">
-        <CarecuecaLogoIcon className={`${iconSizes[size]} transition-transform duration-200 group-hover:scale-105 filter drop-shadow`} />
+        <CarecuecaLogoIcon 
+          inverted={!lightText}
+          className={`${iconSizes[size]} transition-transform duration-200 group-hover:scale-105`} 
+        />
       </div>
       {showText && (
-        <div className="flex flex-col leading-none">
-          <div className="flex items-center space-x-1.5">
-            <span className={`font-black tracking-tight ${textSizes[size]} ${lightText ? 'text-white' : 'text-slate-900'}`}>
-              Carecueca
-            </span>
-            <span className={`font-light tracking-wide ${textSizes[size]} text-amber-400`}>
-              Teatro
-            </span>
-          </div>
-          <span className="text-[9px] font-bold text-indigo-300 tracking-wider uppercase mt-0.5">
-            Compañía Teatral
+        <div className="flex items-center space-x-1.5 leading-none">
+          <span className={`font-black tracking-tight ${textSizes[size]} ${lightText ? 'text-white' : 'text-slate-900'}`}>
+            Carecueca
+          </span>
+          <span className={`font-light tracking-wide ${textSizes[size]} text-amber-600`}>
+            Teatro
           </span>
         </div>
       )}
