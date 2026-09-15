@@ -14,10 +14,11 @@ import {
   Clock,
   ExternalLink,
   MessageCircle,
-  TrendingUp
+  TrendingUp,
+  Coins
 } from 'lucide-react';
 import { Member, DuePayment, QuotaPeriod } from '../types';
-import { formatCLP } from '../lib/exportUtils';
+import { formatCLP, formatPaymentDate } from '../lib/exportUtils';
 import { CarecuecaLogoIcon } from './CarecuecaLogo';
 
 interface DashboardProps {
@@ -48,7 +49,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const currentPeriod = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
   const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || (d.year === currentPeriod?.year && d.month === currentPeriod?.month));
 
-  // Financial calculations
+  // All-time financial calculations across ALL months
+  const allTimeProjected = dues.reduce((acc, d) => acc + (d.amount || 0), 0);
+  const allTimeCollected = dues.reduce((acc, d) => acc + (d.amountPaid || 0), 0);
+  const allTimePending = Math.max(0, allTimeProjected - allTimeCollected);
+  const allTimeRate = allTimeProjected > 0 ? Math.round((allTimeCollected / allTimeProjected) * 100) : 0;
+
+  // Financial calculations for current selected period
   const totalProjected = periodDues.reduce((acc, d) => acc + d.amount, 0);
   const totalCollected = periodDues.reduce((acc, d) => acc + d.amountPaid, 0);
   const totalPending = Math.max(0, totalProjected - totalCollected);
@@ -95,7 +102,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <CarecuecaLogoIcon className="h-10 w-auto max-w-[140px] object-contain flex-shrink-0" />
           <div>
             <h1 className="text-lg font-bold text-slate-900">Resumen Financiero - {currentPeriod?.title}</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Carecueca Teatro • Sincronizado en tiempo real</p>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Carecueca Teatro • Total recaudado histórico (todos los meses): <strong className="text-emerald-700 font-bold">{formatCLP(allTimeCollected)}</strong>
+            </p>
           </div>
         </div>
 
@@ -155,15 +164,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* KPI Stat Cards (Dense 4-Column Grid) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Stat Cards (Responsive 5-Card Grid) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         
-        {/* Recaudado Card */}
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+        {/* Total Recaudado de Todos los Meses Card */}
+        <div className="bg-emerald-50/50 rounded-xl p-5 border border-emerald-200/80 shadow-xs relative">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recaudación Real</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <DollarSign className="w-5 h-5" />
+            <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Total Recaudado</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <Coins className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2.5">
+            <div className="text-2xl font-black text-emerald-900">{formatCLP(allTimeCollected)}</div>
+            <div className="flex items-center space-x-1.5 mt-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                Todos los meses
+              </span>
+              <span className="text-xs text-slate-500">
+                de {formatCLP(allTimeProjected)} ({allTimeRate}%)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Recaudado Mes Seleccionado Card */}
+        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mes: {currentPeriod?.title}</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+              <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2.5">
@@ -175,11 +205,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Cumplimiento Card */}
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cumplimiento</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Cumplimiento Mes</span>
             <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5" />
+              <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2.5">
@@ -190,15 +220,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 style={{ width: `${Math.min(collectionRate, 100)}%` }}
               />
             </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Global todos los meses: {allTimeRate}%
+            </p>
           </div>
         </div>
 
         {/* Pendiente Card */}
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Monto Pendiente</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pendiente Mes</span>
             <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Clock className="w-5 h-5" />
+              <Clock className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2.5">
@@ -210,11 +243,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Socios Registrados Card */}
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Socios Activos</span>
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Socios Activos</span>
             <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
-              <Users className="w-5 h-5" />
+              <Users className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2.5 flex items-center justify-between">
@@ -237,7 +270,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Module 1: Tabular Historical Period Performance (Replaces Bar Chart) */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Histórico de Períodos de Cuotas</h3>
+            <div>
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Histórico de Períodos de Cuotas</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Total acumulado en todos los meses: <strong className="text-emerald-700 font-bold">{formatCLP(allTimeCollected)}</strong>
+              </p>
+            </div>
             <span className="text-xs text-slate-500 font-medium">Últimos {periods.length} meses</span>
           </div>
 
@@ -291,6 +329,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   );
                 })}
               </tbody>
+              <tfoot className="bg-slate-100/80 font-bold border-t-2 border-slate-200 text-sm">
+                <tr>
+                  <td className="px-4 py-3 text-slate-900">
+                    Total Todos los Meses ({periods.length} períodos)
+                  </td>
+                  <td className="px-4 py-3 text-slate-700 font-bold">
+                    {formatCLP(allTimeProjected)}
+                  </td>
+                  <td className="px-4 py-3 text-emerald-700 font-black">
+                    {formatCLP(allTimeCollected)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-9 text-xs font-bold text-slate-800">{allTimeRate}%</span>
+                      <div className="w-20 bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-emerald-600 h-full" style={{ width: `${Math.min(allTimeRate, 100)}%` }} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right text-xs text-slate-600 font-semibold">
+                    {dues.filter((d) => d.status === 'Pagado').length} pagadas
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -412,7 +474,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <td className="px-4 py-3 text-xs text-slate-600">
                     {d.status === 'Pagado' || d.amountPaid > 0 ? (
                       <span className="text-slate-800 font-medium">
-                        {d.paymentMethod || 'Transferencia'} ({d.paidAt ? d.paidAt.split(' ')[0] : 'Confirmado'})
+                        {d.paymentMethod || 'Transferencia'} ({formatPaymentDate(d.paidAt, 'Confirmado')})
                       </span>
                     ) : (
                       <span className="italic text-slate-400">Sin pago registrado</span>

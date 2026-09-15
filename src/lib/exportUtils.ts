@@ -3,14 +3,40 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { Member, DuePayment, BackupLog, BankAccountDetails } from '../types';
 
-// Format Chilean pesos
-export const formatCLP = (amount: number): string => {
+// Format Chilean pesos safely
+export const formatCLP = (amount?: number | null): string => {
+  const valid = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
   return new Intl.NumberFormat('es-CL', {
     style: 'currency',
     currency: 'CLP',
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(valid);
 };
+
+// Safe payment date formatter that handles strings, Firestore Timestamps, and Date objects
+export function formatPaymentDate(date: any, fallback = '-'): string {
+  if (!date) return fallback;
+  if (typeof date === 'string') {
+    const trimmed = date.trim();
+    if (!trimmed) return fallback;
+    return trimmed.split('T')[0].split(' ')[0];
+  }
+  if (typeof date === 'object') {
+    if (typeof date.toDate === 'function') {
+      return date.toDate().toISOString().split('T')[0];
+    }
+    if (typeof date.seconds === 'number') {
+      return new Date(date.seconds * 1000).toISOString().split('T')[0];
+    }
+    if (date instanceof Date && !isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0];
+    }
+  }
+  if (typeof date === 'number' && !isNaN(date)) {
+    return new Date(date).toISOString().split('T')[0];
+  }
+  return String(date || fallback);
+}
 
 // Generate PDF Financial Report
 export function generatePDFReport(
@@ -74,7 +100,7 @@ export function generatePDFReport(
       formatCLP(due.amountPaid),
       due.status,
       due.paymentMethod || '-',
-      due.paidAt ? due.paidAt.split(' ')[0] : '-'
+      formatPaymentDate(due.paidAt)
     ];
   });
 
