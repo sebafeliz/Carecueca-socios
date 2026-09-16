@@ -17,7 +17,8 @@ import {
   QuotaPeriod, 
   AppNotification, 
   BackupLog, 
-  UserRole 
+  UserRole,
+  PaymentStatus 
 } from './types';
 import { 
   INITIAL_MEMBERS, 
@@ -554,13 +555,44 @@ export default function App() {
             setSelectedPeriodId={setSelectedPeriodId}
             openRemindersModal={() => setRemindersModalOpen(true)}
             exportPdfForCurrentPeriod={() => {
-              const currentPeriod = periods.find((p) => p.id === selectedPeriodId);
-              const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title);
-              generatePDFReport(currentPeriod?.title || 'Agosto 2026', periodDues, members, INITIAL_BANK_DETAILS);
+              const currentPeriod = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
+              const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || (d.year === currentPeriod?.year && d.month === currentPeriod?.month));
+              const effectiveDues = periodDues.length > 0 ? periodDues : members.map((m) => ({
+                id: `rep-${m.id}-${currentPeriod?.id || 'curr'}`,
+                memberId: m.id,
+                memberName: m.name,
+                periodTitle: currentPeriod?.title || 'Cuotas',
+                year: currentPeriod?.year || new Date().getFullYear(),
+                month: currentPeriod?.month || new Date().getMonth() + 1,
+                amount: m.customQuota || currentPeriod?.baseAmount || 10000,
+                amountPaid: 0,
+                status: (m.memberStatus === 'Inactivo' ? 'Exento' : 'Pendiente') as PaymentStatus,
+                dueDate: currentPeriod?.dueDate || new Date().toISOString().split('T')[0],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }));
+              generatePDFReport(currentPeriod?.title || 'Cuotas', effectiveDues, members, INITIAL_BANK_DETAILS);
+              showToast(`Descargando PDF oficial de ${currentPeriod?.title}...`);
             }}
             exportExcelCurrentPeriod={() => {
-              const currentPeriod = periods.find((p) => p.id === selectedPeriodId);
-              exportToExcelOrCSV(`Carecueca_Teatro_Cuotas_${currentPeriod?.title}`, dues, members, 'xlsx');
+              const currentPeriod = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
+              const periodDues = dues.filter((d) => d.periodTitle === currentPeriod?.title || (d.year === currentPeriod?.year && d.month === currentPeriod?.month));
+              const effectiveDues = periodDues.length > 0 ? periodDues : members.map((m) => ({
+                id: `rep-${m.id}-${currentPeriod?.id || 'curr'}`,
+                memberId: m.id,
+                memberName: m.name,
+                periodTitle: currentPeriod?.title || 'Cuotas',
+                year: currentPeriod?.year || new Date().getFullYear(),
+                month: currentPeriod?.month || new Date().getMonth() + 1,
+                amount: m.customQuota || currentPeriod?.baseAmount || 10000,
+                amountPaid: 0,
+                status: (m.memberStatus === 'Inactivo' ? 'Exento' : 'Pendiente') as PaymentStatus,
+                dueDate: currentPeriod?.dueDate || new Date().toISOString().split('T')[0],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }));
+              exportToExcelOrCSV(`Carecueca_Teatro_Cuotas_${(currentPeriod?.title || 'Periodo').replace(/\s+/g, '_')}`, effectiveDues, members, 'xlsx', dues);
+              showToast(`Descargando planilla Excel de ${currentPeriod?.title}...`);
             }}
             generateCurrentMonthDues={() => {
               const currentPeriod = periods.find((p) => p.id === selectedPeriodId);
