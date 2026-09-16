@@ -345,6 +345,17 @@ _Tesorería Carecueca Teatro_`;
             <Plus className="w-4 h-4" />
             <span>+ Nuevo Mes de Cuotas</span>
           </button>
+
+          {onOpenWipeModal && (
+            <button
+              onClick={onOpenWipeModal}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs transition-colors border border-rose-200 cursor-pointer"
+              title="Reiniciar todo y eliminar pagos y cobros, conservando únicamente a los socios"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Reiniciar Pagos y Cobros</span>
+            </button>
+          )}
         </div>
       </div>
 

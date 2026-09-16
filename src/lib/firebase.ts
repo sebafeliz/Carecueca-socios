@@ -18,7 +18,14 @@ import { getAuth } from "firebase/auth";
 import config from "../../firebase-applet-config.json";
 import { Member, DuePayment, AppNotification, BackupLog } from "../types";
 import { INITIAL_MEMBERS, INITIAL_DUES, INITIAL_NOTIFICATIONS, INITIAL_BACKUPS, SAMPLE_MEMBER_IDS, SAMPLE_DUE_PREFIXES } from "../data/initialData";
-import { saveToMemberVault, purgeSampleMembersFromVault } from "./recoveryService";
+import { 
+  saveToMemberVault, 
+  purgeSampleMembersFromVault,
+  deduplicateMembersList,
+  overwriteVaultWithDeduplicatedList,
+  cleanNameForComparison,
+  cleanRutForComparison
+} from "./recoveryService";
 
 // Initialize Firebase
 const firebaseApp: FirebaseApp = !getApps().length ? initializeApp(config) : getApp();
@@ -467,6 +474,120 @@ export async function purgeEverythingExceptMembersFromFirestore(): Promise<boole
   } catch (err) {
     console.error("Error purging everything except members from Firestore:", err);
     return false;
+  }
+}
+
+/**
+ * Scans all members across Firestore and local storage, detects duplicates
+ * (e.g. by normalized name like 'bernardina' or RUT), preserves the best record,
+ * and deletes the surplus duplicate records from Firestore and local storage.
+ */
+export async function deduplicateMembersInFirestoreAndLocal(
+  currentActiveMembers?: Member[]
+): Promise<{ cleanedMembers: Member[]; removedCount: number }> {
+  try {
+    // 1. Fetch all members currently in Firestore
+    const membersSnap = await getDocs(collection(db, "members")).catch(() => null);
+    const firestoreMembers: Member[] = [];
+    if (membersSnap && !membersSnap.empty) {
+      membersSnap.docs.forEach((d) => {
+        const item = { id: d.id, ...d.data() } as Member;
+        if (item && item.id && !isSampleRecord(item)) {
+          firestoreMembers.push(item);
+        }
+      });
+    }
+
+    // 2. Gather from local storage and vault
+    let localMembers: Member[] = [];
+    try {
+      const stored = localStorage.getItem("carecueca_members");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) localMembers = parsed;
+      }
+    } catch (e) {}
+
+    let vaultMembers: Member[] = [];
+    try {
+      const stored = localStorage.getItem("carecueca_members_vault");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) vaultMembers = parsed;
+      }
+    } catch (e) {}
+
+    // Combine all sources
+    const allMembersPool = [
+      ...(currentActiveMembers || []),
+      ...firestoreMembers,
+      ...localMembers,
+      ...vaultMembers
+    ].filter((m) => m && m.name && !isSampleRecord(m));
+
+    // 3. Find unique keeper records vs duplicate records to delete
+    const keepers: Member[] = [];
+    const duplicateIdsToDelete = new Set<string>();
+    const seenMap = new Map<string, Member>();
+
+    for (const member of allMembersPool) {
+      if (!member || !member.id) continue;
+
+      const normName = cleanNameForComparison(member.name);
+      const cleanRut = cleanRutForComparison(member.rut);
+      const primaryKey = cleanRut && cleanRut.length >= 7 ? `rut:${cleanRut}` : `name:${normName}`;
+
+      if (seenMap.has(primaryKey)) {
+        const existing = seenMap.get(primaryKey)!;
+        if (existing.id !== member.id) {
+          duplicateIdsToDelete.add(member.id);
+          // Merge in any useful information if existing was missing it
+          if (!existing.rut && member.rut) existing.rut = member.rut;
+          if (!existing.email && member.email) existing.email = member.email;
+          if (!existing.phone && member.phone) existing.phone = member.phone;
+          if (!existing.notes && member.notes) existing.notes = member.notes;
+        }
+      } else {
+        seenMap.set(primaryKey, member);
+        if (normName) seenMap.set(`name:${normName}`, member);
+        keepers.push(member);
+      }
+    }
+
+    // 4. Delete surplus duplicate documents from Firestore
+    if (duplicateIdsToDelete.size > 0) {
+      const batch = writeBatch(db);
+      let batchCount = 0;
+      duplicateIdsToDelete.forEach((dupId) => {
+        recordDeletedId("members", dupId);
+        batch.delete(doc(db, "members", dupId));
+        batchCount++;
+      });
+      if (batchCount > 0) {
+        await batch.commit().catch((e) => console.warn("Firestore batch delete duplicates error:", e));
+      }
+    }
+
+    // 5. Ensure all keeper records are saved in Firestore and update local storage & vault
+    for (const keeper of keepers) {
+      removeDeletedId("members", keeper.id);
+      const docRef = doc(db, "members", keeper.id);
+      setDoc(docRef, cleanForFirestore(keeper)).catch(() => {});
+    }
+
+    // 6. Overwrite local caches and vault with deduplicated list
+    try {
+      localStorage.setItem("carecueca_members", JSON.stringify(keepers));
+      overwriteVaultWithDeduplicatedList(keepers);
+    } catch (e) {}
+
+    return {
+      cleanedMembers: keepers,
+      removedCount: duplicateIdsToDelete.size
+    };
+  } catch (err) {
+    console.error("Error in deduplicateMembersInFirestoreAndLocal:", err);
+    return { cleanedMembers: currentActiveMembers || [], removedCount: 0 };
   }
 }
 

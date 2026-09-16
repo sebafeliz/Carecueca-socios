@@ -44,13 +44,16 @@ import {
   updateNotificationInFirestore, 
   addBackupLogToFirestore,
   recordDeletedId,
-  removeDeletedId
+  removeDeletedId,
+  deduplicateMembersInFirestoreAndLocal
 } from './lib/firebase';
 import { 
   scanForRecoverableMembers, 
   saveToMemberVault, 
   recordDeletedMember, 
   permanentlyPurgeMember,
+  deduplicateMembersList,
+  deduplicateVaultAndSnapshots,
   RecoveredMemberItem 
 } from './lib/recoveryService';
 import { 
@@ -82,11 +85,11 @@ export default function App() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           const cleaned = parsed.filter((m) => !isSampleRecord(m));
-          return dedupeById(cleaned);
+          return deduplicateMembersList(cleaned);
         }
       }
     } catch (e) {}
-    return dedupeById(INITIAL_MEMBERS.filter((m) => !isSampleRecord(m)));
+    return deduplicateMembersList(INITIAL_MEMBERS.filter((m) => !isSampleRecord(m)));
   });
 
   const [dues, setDues] = useState<DuePayment[]>(() => {
@@ -148,6 +151,7 @@ export default function App() {
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const [resetNonMemberModalOpen, setResetNonMemberModalOpen] = useState(false);
+  const [isDeduplicating, setIsDeduplicating] = useState(false);
 
   // Recoverable members found in storage/history
   const [recoverableItems, setRecoverableItems] = useState<RecoveredMemberItem[]>([]);
@@ -172,8 +176,14 @@ export default function App() {
   // 1. Initial Firestore setup & Real-time listeners
   useEffect(() => {
     purgeAllSampleData();
+    // Run automated vault and storage deduplication on startup
+    deduplicateVaultAndSnapshots();
 
-    const unsubMembers = subscribeCollection<Member>('members', INITIAL_MEMBERS, (data) => setMembers(data));
+    const unsubMembers = subscribeCollection<Member>('members', INITIAL_MEMBERS, (data) => {
+      // Ensure incoming real-time members list has duplicates merged
+      const deduped = deduplicateMembersList(data);
+      setMembers(deduped);
+    });
     const unsubDues = subscribeCollection<DuePayment>('dues', INITIAL_DUES, (data) => setDues(data));
     const unsubNotifs = subscribeCollection<AppNotification>('notifications', INITIAL_NOTIFICATIONS, (data) => setNotifications(data));
     const unsubBackups = subscribeCollection<BackupLog>('backup_logs', INITIAL_BACKUPS, (data) => setBackupLogs(data));
@@ -354,21 +364,50 @@ export default function App() {
     runScan();
   };
 
-  // Reset/Purge all operational data except members
+  // Reset/Purge all operational data except members and deduplicate members
   const handleWipeEverythingExceptMembers = async () => {
     try {
-      // Clear React state immediately
+      // 1. Clear operational React state immediately (dues, payments, alerts)
       setDues([]);
       setNotifications([]);
       setBackupLogs([]);
 
-      // Clear Firestore collections & localStorage
+      // 2. Clear Firestore collections & localStorage for operational data
       await purgeEverythingExceptMembersFromFirestore();
 
-      showToast("¡Limpieza completa! Se conservó el registro de todos los socios.");
+      // 3. Deduplicate members across Firestore and local vaults (e.g. Bernardina duplicates)
+      const { cleanedMembers, removedCount } = await deduplicateMembersInFirestoreAndLocal(members);
+      setMembers(cleanedMembers);
+
+      if (removedCount > 0) {
+        showToast(`¡Limpieza completa! Pagos y cobros eliminados. Se conservaron ${cleanedMembers.length} socios únicos (${removedCount} duplicados depurados).`);
+      } else {
+        showToast(`¡Limpieza completa! Pagos y cobros eliminados. Se conservó el registro de los ${cleanedMembers.length} socios.`);
+      }
+      runScan();
     } catch (err) {
       console.error("Error al reiniciar datos operativos:", err);
       showToast("Hubo un problema al limpiar algunos registros de Firestore.");
+    }
+  };
+
+  // Dedicated member deduplication action
+  const handleDeduplicateMembers = async () => {
+    setIsDeduplicating(true);
+    try {
+      const { cleanedMembers, removedCount } = await deduplicateMembersInFirestoreAndLocal(members);
+      setMembers(cleanedMembers);
+      if (removedCount > 0) {
+        showToast(`¡Depuración completada! Se eliminaron ${removedCount} registro(s) repetido(s). Padrón actualizado con ${cleanedMembers.length} socios.`);
+      } else {
+        showToast(`¡Excelente! No se encontraron socios duplicados. Todos los ${cleanedMembers.length} socios son únicos.`);
+      }
+      runScan();
+    } catch (err) {
+      console.error("Error al depurar socios repetidos:", err);
+      showToast("Error al depurar socios repetidos.");
+    } finally {
+      setIsDeduplicating(false);
     }
   };
 
@@ -629,6 +668,8 @@ export default function App() {
             openRecoveryModal={() => { runScan(); setRecoveryModalOpen(true); }}
             recoverableCount={recoverableItems.length}
             onQuickRestoreAll={() => handleRestoreAll(recoverableItems.map((i) => i.member))}
+            onDeduplicateMembers={handleDeduplicateMembers}
+            isDeduplicating={isDeduplicating}
           />
         )}
 

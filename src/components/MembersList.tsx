@@ -36,6 +36,8 @@ interface MembersListProps {
   openRecoveryModal: () => void;
   recoverableCount: number;
   onQuickRestoreAll?: () => Promise<void>;
+  onDeduplicateMembers?: () => Promise<void>;
+  isDeduplicating?: boolean;
 }
 
 // Utility to format Chilean RUT (e.g. 12345678k -> 12.345.678-K)
@@ -61,7 +63,9 @@ export const MembersList: React.FC<MembersListProps> = ({
   openRolesModal,
   openRecoveryModal,
   recoverableCount,
-  onQuickRestoreAll
+  onQuickRestoreAll,
+  onDeduplicateMembers,
+  isDeduplicating = false
 }) => {
   // Modal State
   const [memberModalOpen, setMemberModalOpen] = useState(false);
@@ -277,6 +281,18 @@ export const MembersList: React.FC<MembersListProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onDeduplicateMembers && (
+            <button
+              onClick={onDeduplicateMembers}
+              disabled={isDeduplicating}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-lg text-xs transition-colors border border-amber-200 cursor-pointer disabled:opacity-50"
+              title="Detectar y eliminar automáticamente socios duplicados o repetidos (como Bernardina)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-amber-600 ${isDeduplicating ? 'animate-spin' : ''}`} />
+              <span>{isDeduplicating ? 'Depurando duplicados...' : 'Depurar Socios Repetidos'}</span>
+            </button>
+          )}
+
           <button
             onClick={openRecoveryModal}
             className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors border border-slate-200"

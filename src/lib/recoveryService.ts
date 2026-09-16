@@ -13,6 +13,73 @@ export interface RecoveredMemberItem {
 }
 
 /**
+ * Normalizes RUT for strict duplicate matching
+ */
+export function cleanRutForComparison(rut?: string): string {
+  if (!rut) return '';
+  return rut.replace(/[^0-9kK]/g, '').toUpperCase();
+}
+
+/**
+ * Normalizes member name for duplicate matching
+ */
+export function cleanNameForComparison(name?: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents (e.g. Bernardina vs bernardina)
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Deduplicates a list of members keeping the most complete or most recently updated record
+ */
+export function deduplicateMembersList(members: Member[]): Member[] {
+  const result: Member[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const m of members) {
+    if (!m || !m.name) continue;
+    const nameKey = cleanNameForComparison(m.name);
+    const rutKey = cleanRutForComparison(m.rut);
+
+    // Primary unique keys
+    const hasRut = rutKey.length >= 7;
+    const key = hasRut ? `rut:${rutKey}` : `name:${nameKey}`;
+
+    if (seenKeys.has(key)) {
+      // If duplicate, see if this member has more complete info than existing
+      const existingIdx = result.findIndex((existing) => {
+        const eRut = cleanRutForComparison(existing.rut);
+        const eName = cleanNameForComparison(existing.name);
+        return (hasRut && eRut === rutKey) || (!hasRut && eName === nameKey);
+      });
+      if (existingIdx >= 0) {
+        const existing = result[existingIdx];
+        // Merge in any missing details (phone, email, notes)
+        result[existingIdx] = {
+          ...existing,
+          email: existing.email || m.email || '',
+          phone: existing.phone || m.phone || '',
+          rut: existing.rut || m.rut || '',
+          notes: existing.notes || m.notes || '',
+        };
+      }
+      continue;
+    }
+
+    seenKeys.add(key);
+    // Also mark name key if it has RUT so we don't duplicate by name later
+    if (nameKey) seenKeys.add(`name:${nameKey}`);
+    result.push(m);
+  }
+
+  return result;
+}
+
+/**
  * Validates whether an unknown object fits the basic shape of a Member
  */
 export function isValidMemberObject(obj: any): obj is Member {
@@ -171,7 +238,7 @@ export function scanForRecoverableMembers(currentMembers: Member[]): RecoveredMe
 
 /**
  * Saves members to the permanent vault.
- * This vault is NEVER cleared, only merged with new/updated members.
+ * This vault is merged with new/updated members and automatically deduplicated.
  */
 export function saveToMemberVault(members: Member[]) {
   try {
@@ -193,7 +260,8 @@ export function saveToMemberVault(members: Member[]) {
       if (m && m.id && !SAMPLE_MEMBER_IDS.includes(m.id)) map.set(m.id, m);
     });
 
-    const updated = Array.from(map.values());
+    const combined = Array.from(map.values());
+    const updated = deduplicateMembersList(combined);
     localStorage.setItem(VAULT_KEY, JSON.stringify(updated));
 
     // Also record a snapshot (keep last 10 snapshots)
@@ -204,7 +272,7 @@ export function saveToMemberVault(members: Member[]) {
         snapshots = JSON.parse(snapRaw);
         if (!Array.isArray(snapshots)) snapshots = [];
       }
-      const cleanMembers = members.filter((m) => m && m.id && !SAMPLE_MEMBER_IDS.includes(m.id));
+      const cleanMembers = deduplicateMembersList(members.filter((m) => m && m.id && !SAMPLE_MEMBER_IDS.includes(m.id)));
       snapshots.unshift({
         timestamp: new Date().toLocaleString('es-CL'),
         members: [...cleanMembers]
@@ -214,6 +282,64 @@ export function saveToMemberVault(members: Member[]) {
     } catch (e) {}
   } catch (err) {
     console.warn('Error saving to member vault:', err);
+  }
+}
+
+/**
+ * Explicitly replaces vault content with a deduplicated and cleaned list of members
+ */
+export function overwriteVaultWithDeduplicatedList(cleanedMembers: Member[]) {
+  try {
+    const deduped = deduplicateMembersList(cleanedMembers.filter((m) => m && m.id && !SAMPLE_MEMBER_IDS.includes(m.id)));
+    localStorage.setItem(VAULT_KEY, JSON.stringify(deduped));
+    
+    // Also clean snapshots
+    const snapRaw = localStorage.getItem(SNAPSHOTS_KEY);
+    if (snapRaw) {
+      try {
+        const parsed = JSON.parse(snapRaw);
+        if (Array.isArray(parsed)) {
+          const cleanedSnapshots = parsed.map((s: any) => ({
+            ...s,
+            members: Array.isArray(s.members) ? deduplicateMembersList(s.members) : []
+          })).filter((s: any) => s.members && s.members.length > 0);
+          localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(cleanedSnapshots));
+        }
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('Error overwriting vault:', e);
+  }
+}
+
+/**
+ * Deduplicates all vaults, snapshots, and localStorage member caches
+ */
+export function deduplicateVaultAndSnapshots(): Member[] {
+  try {
+    let allFound: Member[] = [];
+    
+    // Vault
+    const vaultRaw = localStorage.getItem(VAULT_KEY);
+    if (vaultRaw) {
+      const parsed = JSON.parse(vaultRaw);
+      if (Array.isArray(parsed)) allFound.push(...parsed);
+    }
+    
+    // Local cache
+    const localRaw = localStorage.getItem('carecueca_members');
+    if (localRaw) {
+      const parsed = JSON.parse(localRaw);
+      if (Array.isArray(parsed)) allFound.push(...parsed);
+    }
+    
+    const deduped = deduplicateMembersList(allFound.filter((m) => m && m.id && !SAMPLE_MEMBER_IDS.includes(m.id)));
+    overwriteVaultWithDeduplicatedList(deduped);
+    localStorage.setItem('carecueca_members', JSON.stringify(deduped));
+    return deduped;
+  } catch (e) {
+    console.warn('Error during vault deduplication:', e);
+    return [];
   }
 }
 

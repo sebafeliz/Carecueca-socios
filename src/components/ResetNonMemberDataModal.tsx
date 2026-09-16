@@ -69,13 +69,13 @@ export const ResetNonMemberDataModal: React.FC<ResetNonMemberDataModalProps> = (
           </div>
           <ul className="list-disc list-inside space-y-1 text-slate-700 ml-1">
             <li>
-              Se eliminarán <strong className="text-rose-700">{duesCount} cuotas y registros de pago</strong> (de Firestore y memoria local).
+              Se eliminarán <strong className="text-rose-700">{duesCount} cuotas y registros de pagos y cobros</strong> (de Firestore y memoria local).
             </li>
             <li>
-              Se limpiarán todas las alertas, notificaciones y copias de seguridad generadas.
+              Se limpiarán todas las alertas, notificaciones y registros de respaldo.
             </li>
             <li>
-              <strong className="text-emerald-700 underline font-bold">LOS SOCIOS NO SE BORRAN:</strong> Los <strong>{membersCount} socios</strong> actuales permanecerán 100% intactos en el padrón con sus nombres, teléfonos, emails y estados.
+              <strong className="text-emerald-700 underline font-bold">SOLO SE DEJA EL REGISTRO DE SOCIOS:</strong> Se conservan los <strong>{membersCount} socios</strong> y se depuran automáticamente todos los socios repetidos (como Bernardina).
             </li>
           </ul>
         </div>
