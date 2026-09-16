@@ -9,6 +9,7 @@ import { RemindersModal } from './components/RemindersModal';
 import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { RolesAndPermissionsModal } from './components/RolesAndPermissionsModal';
 import { DataRecoveryModal } from './components/DataRecoveryModal';
+import { ResetNonMemberDataModal } from './components/ResetNonMemberDataModal';
 
 import { 
   Member, 
@@ -29,6 +30,7 @@ import {
 import { 
   seedInitialDataIfNeeded, 
   purgeAllSampleData,
+  purgeEverythingExceptMembersFromFirestore,
   isSampleRecord,
   subscribeCollection, 
   saveMemberToFirestore, 
@@ -144,6 +146,7 @@ export default function App() {
   const [notificationsDrawerOpen, setNotificationsDrawerOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
+  const [resetNonMemberModalOpen, setResetNonMemberModalOpen] = useState(false);
 
   // Recoverable members found in storage/history
   const [recoverableItems, setRecoverableItems] = useState<RecoveredMemberItem[]>([]);
@@ -350,6 +353,24 @@ export default function App() {
     runScan();
   };
 
+  // Reset/Purge all operational data except members
+  const handleWipeEverythingExceptMembers = async () => {
+    try {
+      // Clear React state immediately
+      setDues([]);
+      setNotifications([]);
+      setBackupLogs([]);
+
+      // Clear Firestore collections & localStorage
+      await purgeEverythingExceptMembersFromFirestore();
+
+      showToast("¡Limpieza completa! Se conservó el registro de todos los socios.");
+    } catch (err) {
+      console.error("Error al reiniciar datos operativos:", err);
+      showToast("Hubo un problema al limpiar algunos registros de Firestore.");
+    }
+  };
+
   // Due Update Action
   const handleUpdateDue = async (updatedDue: DuePayment) => {
     setDues((prev) => {
@@ -510,6 +531,7 @@ export default function App() {
         openNotifications={() => setNotificationsDrawerOpen(true)}
         pushEnabled={pushEnabled}
         togglePushNotifications={handleTogglePushNotifications}
+        onOpenWipeModal={() => setResetNonMemberModalOpen(true)}
       />
 
       {/* Toast Floating Feedback */}
@@ -560,6 +582,7 @@ export default function App() {
             onCreatePeriod={handleCreatePeriod}
             onSendWhatsAppReminder={handleSendWhatsAppReminder}
             bankDetails={INITIAL_BANK_DETAILS}
+            onOpenWipeModal={() => setResetNonMemberModalOpen(true)}
           />
         )}
 
@@ -638,6 +661,14 @@ export default function App() {
         onRestoreAll={handleRestoreAll}
         onRefreshScan={runScan}
         activeCount={members.length}
+      />
+
+      <ResetNonMemberDataModal
+        isOpen={resetNonMemberModalOpen}
+        onClose={() => setResetNonMemberModalOpen(false)}
+        onConfirm={handleWipeEverythingExceptMembers}
+        membersCount={members.length}
+        duesCount={dues.length}
       />
 
       {/* Footer */}

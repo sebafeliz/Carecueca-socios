@@ -414,3 +414,59 @@ export async function addBackupLogToFirestore(backup: BackupLog): Promise<void> 
     console.error("Error adding backup log to Firestore:", err);
   }
 }
+
+/**
+ * Completely wipes all records (dues, payments, notifications, backups, activity)
+ * across Cloud Firestore and local storage, strictly PRESERVING members.
+ */
+export async function purgeEverythingExceptMembersFromFirestore(): Promise<boolean> {
+  try {
+    // 1. Purge all dues from Firestore
+    const duesSnap = await getDocs(collection(db, "dues")).catch(() => null);
+    if (duesSnap && !duesSnap.empty) {
+      const batch = writeBatch(db);
+      duesSnap.docs.forEach((d) => {
+        batch.delete(doc(db, "dues", d.id));
+      });
+      await batch.commit();
+    }
+
+    // 2. Purge notifications from Firestore
+    const notifsSnap = await getDocs(collection(db, "notifications")).catch(() => null);
+    if (notifsSnap && !notifsSnap.empty) {
+      const batch = writeBatch(db);
+      notifsSnap.docs.forEach((d) => {
+        batch.delete(doc(db, "notifications", d.id));
+      });
+      await batch.commit();
+    }
+
+    // 3. Purge backup logs from Firestore
+    const backupsSnap = await getDocs(collection(db, "backup_logs")).catch(() => null);
+    if (backupsSnap && !backupsSnap.empty) {
+      const batch = writeBatch(db);
+      backupsSnap.docs.forEach((d) => {
+        batch.delete(doc(db, "backup_logs", d.id));
+      });
+      await batch.commit();
+    }
+
+    // 4. Reset local storage for everything EXCEPT members
+    try {
+      localStorage.setItem("carecueca_dues", JSON.stringify([]));
+      localStorage.setItem("carecueca_notifications", JSON.stringify([]));
+      localStorage.setItem("carecueca_backup_logs", JSON.stringify([]));
+      localStorage.removeItem("carecueca_deleted_ids_dues");
+      localStorage.removeItem("carecueca_deleted_ids_notifications");
+      localStorage.removeItem("carecueca_deleted_ids_backup_logs");
+    } catch (e) {
+      console.warn("Error clearing local storage non-member caches:", e);
+    }
+
+    return true;
+  } catch (err) {
+    console.error("Error purging everything except members from Firestore:", err);
+    return false;
+  }
+}
+

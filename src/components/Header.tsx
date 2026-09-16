@@ -12,7 +12,8 @@ import {
   X, 
   Sparkles,
   Smartphone,
-  CloudCheck
+  CloudCheck,
+  RotateCcw
 } from 'lucide-react';
 import { UserRole } from '../types';
 import { CarecuecaLogo } from './CarecuecaLogo';
@@ -26,6 +27,7 @@ interface HeaderProps {
   openNotifications: () => void;
   pushEnabled: boolean;
   togglePushNotifications: () => void;
+  onOpenWipeModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -36,9 +38,11 @@ export const Header: React.FC<HeaderProps> = ({
   unreadCount,
   openNotifications,
   pushEnabled,
-  togglePushNotifications
+  togglePushNotifications,
+  onOpenWipeModal
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
 
   const navItems = [
     { id: 'members', label: 'Registro de Socios', icon: Users },
@@ -85,6 +89,17 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Right Controls */}
           <div className="flex items-center space-x-2.5">
+            {onOpenWipeModal && (
+              <button
+                onClick={onOpenWipeModal}
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-200 hover:border-rose-200 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer"
+                title="Borrar todo excepto socios (dejar pagos y cuotas en cero)"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+                <span className="hidden sm:inline">Reiniciar Cuotas</span>
+              </button>
+            )}
+
             {/* Mobile Hamburger Toggle */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -118,6 +133,19 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             );
           })}
+
+          {onOpenWipeModal && (
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenWipeModal();
+              }}
+              className="w-full flex items-center space-x-3 px-3 py-2 rounded-md text-xs font-medium text-rose-700 hover:bg-rose-50 border-t border-slate-100 mt-2 pt-2"
+            >
+              <RotateCcw className="w-4 h-4 text-rose-500" />
+              <span>Reiniciar Todo Excepto Socios</span>
+            </button>
+          )}
         </div>
       )}
     </header>

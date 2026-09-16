@@ -35,6 +35,7 @@ interface DuesManagementProps {
   onCreatePeriod: (title: string, year: number, month: number, dueDate: string, baseAmount: number) => void;
   onSendWhatsAppReminder: (due: DuePayment) => void;
   bankDetails: any;
+  onOpenWipeModal?: () => void;
 }
 
 export const DuesManagement: React.FC<DuesManagementProps> = ({
@@ -47,6 +48,7 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   onDeleteDue,
   onCreatePeriod,
   onSendWhatsAppReminder,
+  onOpenWipeModal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('Todos');
@@ -941,7 +943,7 @@ _Tesorería Carecueca Teatro_`;
               </span>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between mt-auto">
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 mt-auto">
               <button
                 type="button"
                 onClick={() => setResetModalOpen(false)}
@@ -950,16 +952,33 @@ _Tesorería Carecueca Teatro_`;
                 Cerrar
               </button>
 
-              {paidPeriodDues.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleResetAllPeriodPayments}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>Reiniciar Todos los Pagos</span>
-                </button>
-              )}
+              <div className="flex items-center space-x-2">
+                {onOpenWipeModal && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResetModalOpen(false);
+                      onOpenWipeModal();
+                    }}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                    title="Borra todos los registros y pagos de cuotas conservando el padrón de socios"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Borrar Todo Excepto Socios</span>
+                  </button>
+                )}
+
+                {paidPeriodDues.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResetAllPeriodPayments}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Reiniciar Todos los Pagos</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
