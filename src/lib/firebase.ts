@@ -332,6 +332,47 @@ export async function saveDueToFirestore(due: DuePayment): Promise<void> {
   }
 }
 
+export async function deleteDueFromFirestore(dueId: string): Promise<boolean> {
+  try {
+    recordDeletedId("dues", dueId);
+    await retryFirestoreOp(async () => {
+      await deleteDoc(doc(db, "dues", dueId));
+    });
+    return true;
+  } catch (err) {
+    console.error("Error deleting due from Firestore:", err);
+    return false;
+  }
+}
+
+export async function deleteDuesForMemberFromFirestore(memberId: string, knownDueIds?: string[]): Promise<boolean> {
+  try {
+    if (knownDueIds && knownDueIds.length > 0) {
+      knownDueIds.forEach((id) => recordDeletedId("dues", id));
+    }
+    const duesSnap = await getDocs(collection(db, "dues")).catch(() => null);
+    if (duesSnap && !duesSnap.empty) {
+      const batch = writeBatch(db);
+      let count = 0;
+      duesSnap.docs.forEach((d) => {
+        const data = d.data();
+        if (data.memberId === memberId || d.id.includes(memberId)) {
+          recordDeletedId("dues", d.id);
+          batch.delete(doc(db, "dues", d.id));
+          count++;
+        }
+      });
+      if (count > 0) {
+        await batch.commit();
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error("Error deleting member dues from Firestore:", err);
+    return false;
+  }
+}
+
 export async function batchSaveDuesToFirestore(dues: DuePayment[]): Promise<void> {
   try {
     const batch = writeBatch(db);

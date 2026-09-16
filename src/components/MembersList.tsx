@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Clock
 } from 'lucide-react';
-import { Member, MemberStatus, UserRole, TroupeRole } from '../types';
+import { Member, MemberStatus, UserRole, TroupeRole, DuePayment } from '../types';
 import { formatCLP } from '../lib/exportUtils';
 import { 
   saveFormDraft, 
@@ -28,9 +28,10 @@ import {
 
 interface MembersListProps {
   members: Member[];
+  dues?: DuePayment[];
   currentUserRole: UserRole;
   onSaveMember: (member: Member) => Promise<void> | void;
-  onDeleteMember: (id: string) => Promise<void> | void;
+  onDeleteMember: (id: string, isErroneousEntry?: boolean) => Promise<void> | void;
   openRolesModal: () => void;
   openRecoveryModal: () => void;
   recoverableCount: number;
@@ -53,6 +54,7 @@ export function formatRUT(value: string): string {
 
 export const MembersList: React.FC<MembersListProps> = ({
   members,
+  dues = [],
   currentUserRole,
   onSaveMember,
   onDeleteMember,
@@ -185,11 +187,11 @@ export const MembersList: React.FC<MembersListProps> = ({
     }
   };
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = async (isErroneousEntry = true) => {
     if (!memberToDelete) return;
     setIsDeleting(true);
     try {
-      await onDeleteMember(memberToDelete.id);
+      await onDeleteMember(memberToDelete.id, isErroneousEntry);
       setMemberToDelete(null);
     } catch (err) {
       console.error(err);
@@ -611,60 +613,130 @@ export const MembersList: React.FC<MembersListProps> = ({
       )}
 
       {/* CONFIRMATION MODAL FOR DELETING MEMBER */}
-      {memberToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center space-x-3 text-rose-600">
-              <div className="p-2.5 bg-rose-50 rounded-xl">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">¿Eliminar socio?</h3>
-                <p className="text-xs text-slate-500">Carecueca Teatro • Protección de Datos</p>
-              </div>
-            </div>
+      {memberToDelete && (() => {
+        const memberDues = dues.filter((d) => d.memberId === memberToDelete.id);
+        const memberDuesCount = memberDues.length;
+        const memberPaidCount = memberDues.filter((d) => d.amountPaid > 0 || d.status === 'Pagado').length;
+        const totalPaidCLP = memberDues.reduce((sum, d) => sum + (d.amountPaid || 0), 0);
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              ¿Estás seguro de quitar a <strong className="text-slate-900">{memberToDelete.name}</strong> ({memberToDelete.troupeRole}) del listado activo?
-            </p>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 space-y-1">
-              <div className="font-semibold text-slate-800 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Tranquilo, no se perderán sus datos:</span>
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center space-x-3 text-rose-600">
+                <div className="p-2.5 bg-rose-50 rounded-xl">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Eliminar Socio del Directorio</h3>
+                  <p className="text-xs text-slate-500">Carecueca Teatro • Opciones de Eliminación</p>
+                </div>
               </div>
-              <p>
-                El socio se moverá a la <strong>Papelera / Bóveda de Seguridad</strong>. Podrás restaurarlo en cualquier momento desde el botón <em>Recuperación & Bóveda</em>.
-              </p>
-            </div>
 
-            <div className="flex items-center justify-end space-x-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setMemberToDelete(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center space-x-1.5"
-              >
-                {isDeleting ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Eliminando...</span>
-                  </>
+              {/* Member Summary */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="font-bold text-slate-900 text-sm">{memberToDelete.name}</p>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">RUT: {memberToDelete.rut || 'Sin RUT'} • {memberToDelete.troupeRole}</p>
+                  </div>
+                  <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-semibold">
+                    {memberToDelete.memberStatus}
+                  </span>
+                </div>
+
+                {memberDuesCount > 0 ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-900 flex items-center justify-between">
+                    <span>
+                      Registros de cuotas: <strong>{memberDuesCount} período(s)</strong> ({memberPaidCount} pagado/parcial)
+                    </span>
+                    {totalPaidCLP > 0 && (
+                      <span className="font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded">
+                        Total pagado: {formatCLP(totalPaidCLP)}
+                      </span>
+                    )}
+                  </div>
                 ) : (
-                  <span>Mover a Papelera</span>
+                  <p className="text-xs text-slate-500 italic">No registra cuotas asociadas en períodos actuales.</p>
                 )}
-              </button>
+              </div>
+
+              <p className="text-xs text-slate-600">
+                Elige el modo de eliminación adecuado según la situación:
+              </p>
+
+              {/* Option 1: Ingreso Erróneo (Definitive removal of member and all dues/payments) */}
+              <div className="border-2 border-rose-300 bg-rose-50/50 rounded-xl p-4 transition-all hover:bg-rose-50/80 space-y-2.5">
+                <div className="flex items-start space-x-2.5">
+                  <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0 mt-0.5">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-rose-950">1. Eliminar por ingreso erróneo (Eliminación Total)</h4>
+                      <span className="text-[10px] bg-rose-200 text-rose-800 font-bold px-1.5 py-0.5 rounded">Recomendado</span>
+                    </div>
+                    <p className="text-[11px] text-rose-900/85 mt-1 leading-relaxed">
+                      Elimina definitivamente al socio y <strong>todos sus registros de pago y cuotas</strong> de la base de datos Firestore y del sistema. No dejará cobros huérfanos ni volverá a aparecer en la papelera o bóveda de seguridad.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleConfirmDelete(true)}
+                  className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer"
+                >
+                  {isDeleting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Eliminando socio y registros de pago...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Eliminar socio y sus pagos por ingreso erróneo</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Option 2: Mover a Papelera / Archivar */}
+              <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-start space-x-2.5">
+                  <div className="p-1.5 bg-slate-200 text-slate-700 rounded-lg shrink-0 mt-0.5">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-xs font-bold text-slate-800">2. Mover a Papelera de Seguridad</h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                      Archiva al socio en la papelera temporal (por si es un retiro temporal) y permite restaurarlo más adelante desde Bóveda de Seguridad.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleConfirmDelete(false)}
+                  className="w-full py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
+                >
+                  <span>Mover a Papelera (Conservar en Bóveda)</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setMemberToDelete(null)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
     </div>
   );

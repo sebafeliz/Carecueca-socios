@@ -31,6 +31,7 @@ interface DuesManagementProps {
   selectedPeriodId: string;
   setSelectedPeriodId: (id: string) => void;
   onUpdateDue: (due: DuePayment) => void;
+  onDeleteDue?: (dueId: string) => void;
   onCreatePeriod: (title: string, year: number, month: number, dueDate: string, baseAmount: number) => void;
   onSendWhatsAppReminder: (due: DuePayment) => void;
   bankDetails: any;
@@ -43,6 +44,7 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   selectedPeriodId,
   setSelectedPeriodId,
   onUpdateDue,
+  onDeleteDue,
   onCreatePeriod,
   onSendWhatsAppReminder,
 }) => {
@@ -56,6 +58,10 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   const [payMethod, setPayMethod] = useState<PaymentMethod>('Transferencia Bancaria');
   const [receiptNo, setReceiptNo] = useState<string>('');
   const [payNotes, setPayNotes] = useState<string>('');
+
+  // Modal State for Deleting Erroneous Payment Record or Due
+  const [paymentToDelete, setPaymentToDelete] = useState<DuePayment | null>(null);
+  const [dueToDelete, setDueToDelete] = useState<DuePayment | null>(null);
 
   // Modal State for Creating New Period
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -154,9 +160,6 @@ _Tesorería Carecueca Teatro_`;
   // Reset ALL paid dues in current period
   const handleResetAllPeriodPayments = () => {
     if (paidPeriodDues.length === 0) return;
-    if (!window.confirm(`¿Estás seguro de reiniciar TODOS los pagos del período ${currentPeriod?.title}? Se borrarán ${paidPeriodDues.length} registro(s) de pago.`)) {
-      return;
-    }
 
     const todayStr = new Date().toISOString().split('T')[0];
 
@@ -240,19 +243,20 @@ _Tesorería Carecueca Teatro_`;
     }
   };
 
-  // Delete Payment / Revert to Pending
+  // Trigger deletion confirmation modal for erroneous payment
   const handleDeletePayment = () => {
     if (!selectedDue) return;
-    if (!window.confirm(`¿Estás seguro de eliminar el registro de pago de ${selectedDue.memberName}? La cuota se reestablecerá como pendiente.`)) {
-      return;
-    }
+    setPaymentToDelete(selectedDue);
+  };
 
+  // Confirmed Delete of Payment Record (Erroneous Entry)
+  const confirmDeletePayment = (due: DuePayment) => {
     const todayStr = new Date().toISOString().split('T')[0];
-    const isOverdue = selectedDue.dueDate && selectedDue.dueDate < todayStr;
-    const isExempt = selectedDue.status === 'Exento';
+    const isOverdue = due.dueDate && due.dueDate < todayStr;
+    const isExempt = due.status === 'Exento';
 
     const updated: DuePayment = {
-      ...selectedDue,
+      ...due,
       amountPaid: 0,
       status: isExempt ? 'Exento' : (isOverdue ? 'Atrasado' : 'Pendiente'),
       paidAt: undefined,
@@ -263,6 +267,17 @@ _Tesorería Carecueca Teatro_`;
     };
 
     onUpdateDue(updated);
+    setPaymentToDelete(null);
+    setPaymentModalOpen(false);
+  };
+
+  // Confirmed Delete of entire Due record for period
+  const confirmDeleteDue = (due: DuePayment) => {
+    if (onDeleteDue) {
+      onDeleteDue(due.id);
+    }
+    setDueToDelete(null);
+    setPaymentToDelete(null);
     setPaymentModalOpen(false);
   };
 
@@ -463,21 +478,41 @@ _Tesorería Carecueca Teatro_`;
 
                         {/* Send Message Button: Confirmation if paid, Reminder if unpaid */}
                         {due.amountPaid > 0 || due.status === 'Pagado' || due.status === 'Parcial' ? (
-                          <button
-                            onClick={() => handleOpenConfirmModal(due)}
-                            title="Enviar Confirmación de Pago por WhatsApp / Correo"
-                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
-                          >
-                            <MessageSquare className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleOpenConfirmModal(due)}
+                              title="Enviar Confirmación de Pago por WhatsApp / Correo"
+                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200 cursor-pointer transition-colors"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setPaymentToDelete(due)}
+                              title="Eliminar registro de pago por ingreso erróneo"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 cursor-pointer transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            onClick={() => onSendWhatsAppReminder(due)}
-                            title="Enviar Recordatorio/Cobro por WhatsApp"
-                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 cursor-pointer transition-colors"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => onSendWhatsAppReminder(due)}
+                              title="Enviar Recordatorio/Cobro por WhatsApp"
+                              className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg border border-amber-200 cursor-pointer transition-colors"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                            {onDeleteDue && (
+                              <button
+                                onClick={() => setDueToDelete(due)}
+                                title="Eliminar cuota de este período por error"
+                                className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
                         )}
 
                       </div>
@@ -528,21 +563,41 @@ _Tesorería Carecueca Teatro_`;
 
                 <div className="flex items-center justify-end space-x-2 pt-1">
                   {due.amountPaid > 0 || due.status === 'Pagado' || due.status === 'Parcial' ? (
-                    <button
-                      onClick={() => handleOpenConfirmModal(due)}
-                      className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      <span>Confirmación</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleOpenConfirmModal(due)}
+                        className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Confirmación</span>
+                      </button>
+                      <button
+                        onClick={() => setPaymentToDelete(due)}
+                        title="Eliminar registro de pago por ingreso erróneo"
+                        className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold rounded-xl text-xs flex items-center justify-center transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      onClick={() => onSendWhatsAppReminder(due)}
-                      className="flex-1 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
-                    >
-                      <Send className="w-4 h-4" />
-                      <span>Recordatorio</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => onSendWhatsAppReminder(due)}
+                        className="flex-1 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                      >
+                        <Send className="w-4 h-4" />
+                        <span>Recordatorio</span>
+                      </button>
+                      {onDeleteDue && (
+                        <button
+                          onClick={() => setDueToDelete(due)}
+                          title="Eliminar cuota por error"
+                          className="py-2 px-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 rounded-xl text-xs flex items-center justify-center transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </>
                   )}
 
                   <button
@@ -678,7 +733,7 @@ _Tesorería Carecueca Teatro_`;
                     title="Eliminar este pago y reestablecer cuota a pendiente"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>Eliminar Pago</span>
+                    <span>Eliminar pago por error</span>
                   </button>
                 ) : <div />}
 
@@ -981,6 +1036,122 @@ _Tesorería Carecueca Teatro_`;
                 className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmación para Eliminar Registro de Pago por Ingreso Erróneo */}
+      {paymentToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-xl">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Eliminar Registro de Pago</h3>
+                <p className="text-xs text-slate-500">Carecueca Teatro • Por ingreso erróneo</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50/50 border border-rose-200 rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-bold text-slate-900 text-sm">{paymentToDelete.memberName}</p>
+                  <p className="text-slate-600 mt-0.5">Período: <strong>{paymentToDelete.periodTitle}</strong></p>
+                </div>
+                <span className="font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded text-xs">
+                  {formatCLP(paymentToDelete.amountPaid)}
+                </span>
+              </div>
+              <div className="pt-2 border-t border-rose-200/60 grid grid-cols-2 gap-1 text-[11px] text-slate-600">
+                <div>Método: <strong>{paymentToDelete.paymentMethod || 'No especificado'}</strong></div>
+                <div>Fecha: <strong>{paymentToDelete.paidAt ? paymentToDelete.paidAt.split(' ')[0] : 'No reg.'}</strong></div>
+                {paymentToDelete.receiptNumber && (
+                  <div className="col-span-2">Comprobante: <strong>{paymentToDelete.receiptNumber}</strong></div>
+                )}
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              ¿Confirmas que este pago fue registrado por error? Al anularlo, el monto pagado volverá a <strong>$0</strong>, el comprobante se descartará y la cuota volverá a estado <strong>Pendiente</strong> (o <strong>Atrasado</strong>). Las métricas del período se actualizarán inmediatamente.
+            </p>
+
+            <div className="pt-2 flex items-center justify-between">
+              {onDeleteDue ? (
+                <button
+                  type="button"
+                  onClick={() => confirmDeleteDue(paymentToDelete)}
+                  className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline cursor-pointer"
+                  title="Eliminar cuota completa del período si el socio no correspondía"
+                >
+                  Eliminar cuota completa
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentToDelete(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => confirmDeletePayment(paymentToDelete)}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Eliminar Pago Erróneo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmación para Eliminar Cuota de Período por Ingreso Erróneo */}
+      {dueToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-xl">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Eliminar Cuota del Período</h3>
+                <p className="text-xs text-slate-500">Carecueca Teatro • Por ingreso erróneo</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs space-y-1">
+              <p className="font-bold text-slate-900 text-sm">{dueToDelete.memberName}</p>
+              <p className="text-slate-600">Período: <strong>{dueToDelete.periodTitle}</strong></p>
+              <p className="text-slate-600">Monto Cuota: <strong>{formatCLP(dueToDelete.amount)}</strong></p>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              ¿Estás seguro de quitar este registro de cuota para {dueToDelete.memberName}? Esta opción se utiliza si la cuota fue generada o asignada por equivocación para este período.
+            </p>
+
+            <div className="pt-2 flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setDueToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDeleteDue(dueToDelete)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Eliminar Cuota</span>
               </button>
             </div>
           </div>

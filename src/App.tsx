@@ -34,16 +34,20 @@ import {
   saveMemberToFirestore, 
   deleteMemberFromFirestore, 
   saveDueToFirestore, 
+  deleteDueFromFirestore,
+  deleteDuesForMemberFromFirestore,
   batchSaveDuesToFirestore, 
   addNotificationToFirestore, 
   updateNotificationInFirestore, 
   addBackupLogToFirestore,
+  recordDeletedId,
   removeDeletedId
 } from './lib/firebase';
 import { 
   scanForRecoverableMembers, 
   saveToMemberVault, 
   recordDeletedMember, 
+  permanentlyPurgeMember,
   RecoveredMemberItem 
 } from './lib/recoveryService';
 import { 
@@ -257,10 +261,19 @@ export default function App() {
     }
   };
 
-  const handleDeleteMember = async (memberId: string) => {
+  const handleDeleteMember = async (memberId: string, isErroneousEntry = true) => {
     const targetMember = members.find((m) => m.id === memberId);
-    if (targetMember) {
+    const memberDueIds = dues.filter((d) => d.memberId === memberId).map((d) => d.id);
+
+    if (isErroneousEntry) {
+      // Complete purge: remove from recovery vaults, snapshots, and deleted bin
+      permanentlyPurgeMember(memberId);
+      recordDeletedId("members", memberId);
+      memberDueIds.forEach((dId) => recordDeletedId("dues", dId));
+    } else if (targetMember) {
       recordDeletedMember(targetMember);
+      recordDeletedId("members", memberId);
+      memberDueIds.forEach((dId) => recordDeletedId("dues", dId));
     }
 
     setMembers((prev) => {
@@ -268,18 +281,41 @@ export default function App() {
       try { localStorage.setItem('carecueca_members', JSON.stringify(next)); } catch (e) {}
       return next;
     });
+
     setDues((prev) => {
       const next = prev.filter((d) => d.memberId !== memberId);
       try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
       return next;
     });
+
     try {
       await deleteMemberFromFirestore(memberId);
+      await deleteDuesForMemberFromFirestore(memberId, memberDueIds);
     } catch (err) {
-      console.warn("Firestore member delete failed:", err);
+      console.warn("Firestore member/dues delete failed:", err);
     }
-    showToast("Socio movido a papelera de seguridad (puedes restaurarlo).");
+
+    if (isErroneousEntry) {
+      showToast(`Socio ${targetMember ? targetMember.name : ''} y todos sus registros de cuotas y pagos fueron eliminados por ingreso erróneo.`);
+    } else {
+      showToast("Socio movido a papelera de seguridad (puedes restaurarlo).");
+    }
     runScan();
+  };
+
+  const handleDeleteDue = async (dueId: string) => {
+    recordDeletedId("dues", dueId);
+    setDues((prev) => {
+      const next = prev.filter((d) => d.id !== dueId);
+      try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    try {
+      await deleteDueFromFirestore(dueId);
+    } catch (err) {
+      console.warn("Firestore due delete failed:", err);
+    }
+    showToast("Registro de cuota eliminado por ingreso erróneo.");
   };
 
   const handleRestoreMember = async (memberToRestore: Member) => {
@@ -520,6 +556,7 @@ export default function App() {
             selectedPeriodId={selectedPeriodId}
             setSelectedPeriodId={setSelectedPeriodId}
             onUpdateDue={handleUpdateDue}
+            onDeleteDue={handleDeleteDue}
             onCreatePeriod={handleCreatePeriod}
             onSendWhatsAppReminder={handleSendWhatsAppReminder}
             bankDetails={INITIAL_BANK_DETAILS}
@@ -529,6 +566,7 @@ export default function App() {
         {activeTab === 'members' && (
           <MembersList
             members={members}
+            dues={dues}
             currentUserRole={currentUserRole}
             onSaveMember={handleSaveMember}
             onDeleteMember={handleDeleteMember}

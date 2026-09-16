@@ -261,6 +261,64 @@ export function purgeSampleMembersFromVault() {
 
 
 /**
+ * Permanently purges an erroneously entered member from all vaults, snapshots, and bins
+ * so that the recovery system will never attempt to restore them.
+ */
+export function permanentlyPurgeMember(memberId: string) {
+  try {
+    // 1. Purge from Vault
+    const vaultRaw = localStorage.getItem(VAULT_KEY);
+    if (vaultRaw) {
+      try {
+        const parsed = JSON.parse(vaultRaw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((m) => m && m.id !== memberId);
+          localStorage.setItem(VAULT_KEY, JSON.stringify(cleaned));
+        }
+      } catch (e) {}
+    }
+
+    // 2. Purge from Recycle Bin
+    const binRaw = localStorage.getItem(DELETED_KEY);
+    if (binRaw) {
+      try {
+        const parsed = JSON.parse(binRaw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((m) => m && m.id !== memberId);
+          localStorage.setItem(DELETED_KEY, JSON.stringify(cleaned));
+        }
+      } catch (e) {}
+    }
+
+    // 3. Purge from Snapshots
+    const snapRaw = localStorage.getItem(SNAPSHOTS_KEY);
+    if (snapRaw) {
+      try {
+        const parsed = JSON.parse(snapRaw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.map((s: any) => ({
+            ...s,
+            members: Array.isArray(s.members) ? s.members.filter((m: any) => m && m.id !== memberId) : []
+          })).filter((s: any) => s.members && s.members.length > 0);
+          localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(cleaned));
+        }
+      } catch (e) {}
+    }
+
+    // 4. Also scan any other storage entries referencing this memberId
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.includes(memberId)) {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch (err) {
+    console.warn('Error purging member from vault:', err);
+  }
+}
+
+/**
  * Records a member in the Deleted / Recycle Bin
  */
 export function recordDeletedMember(member: Member) {
