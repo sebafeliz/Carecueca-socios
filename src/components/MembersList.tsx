@@ -1,22 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Users, 
   UserPlus, 
-  ShieldCheck, 
   Phone, 
   Mail, 
   X, 
   Trash2, 
   Edit3, 
-  Drama,
   CheckCircle2,
   AlertCircle,
   UserCheck,
   RotateCcw,
-  Sparkles,
-  AlertTriangle,
   RefreshCw,
-  Clock
+  Clock,
+  Search,
+  MoreVertical,
+  ChevronDown
 } from 'lucide-react';
 import { Member, MemberStatus, UserRole, TroupeRole, DuePayment } from '../types';
 import { formatCLP } from '../lib/exportUtils';
@@ -40,7 +39,6 @@ interface MembersListProps {
   isDeduplicating?: boolean;
 }
 
-// Utility to format Chilean RUT (e.g. 12345678k -> 12.345.678-K)
 export function formatRUT(value: string): string {
   const clean = value.replace(/[^0-9kK]/g, '').toUpperCase();
   if (clean.length <= 1) return clean;
@@ -60,7 +58,6 @@ export const MembersList: React.FC<MembersListProps> = ({
   currentUserRole,
   onSaveMember,
   onDeleteMember,
-  openRolesModal,
   openRecoveryModal,
   recoverableCount,
   onQuickRestoreAll,
@@ -71,6 +68,26 @@ export const MembersList: React.FC<MembersListProps> = ({
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Search & Filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('Todos');
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+
+  // Expandable member names: keep other details hidden until clicking on the name
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const handleToggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   // Deletion Confirmation Dialog State
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
@@ -88,7 +105,6 @@ export const MembersList: React.FC<MembersListProps> = ({
   const [notes, setNotes] = useState('');
   const [hasDraft, setHasDraft] = useState(false);
 
-  // Check for saved form draft when opening add form
   const checkDraftOnOpen = () => {
     const draft = loadFormDraft();
     if (draft && draft.name) {
@@ -144,7 +160,6 @@ export const MembersList: React.FC<MembersListProps> = ({
     setMemberModalOpen(true);
   };
 
-  // Auto-save draft when adding a new member
   const handleFieldChange = (field: string, val: any) => {
     if (!editingMember) {
       saveFormDraft({
@@ -163,10 +178,11 @@ export const MembersList: React.FC<MembersListProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    if (!name.trim()) return;
 
+    setIsSubmitting(true);
     const memberToSave: Member = {
-      id: editingMember ? editingMember.id : 'mem-' + Date.now(),
+      id: editingMember ? editingMember.id : `mem-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: name.trim(),
       email: email.trim(),
       phone: phone.trim(),
@@ -174,9 +190,9 @@ export const MembersList: React.FC<MembersListProps> = ({
       troupeRole,
       memberStatus,
       userRole,
-      customQuota: Number(customQuota),
-      joinDate: editingMember ? editingMember.joinDate : new Date().toISOString().split('T')[0],
+      customQuota: Number(customQuota) || 10000,
       notes: notes.trim(),
+      joinDate: editingMember?.joinDate || new Date().toISOString().split('T')[0],
       createdAt: editingMember?.createdAt || new Date().toISOString()
     };
 
@@ -204,286 +220,320 @@ export const MembersList: React.FC<MembersListProps> = ({
     }
   };
 
-  // Filter members (direct list)
-  const filteredMembers = members;
+  // Filtered members by search query and status
+  const filteredMembers = members.filter((m) => {
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = !q || 
+      m.name.toLowerCase().includes(q) || 
+      m.rut.toLowerCase().includes(q) ||
+      m.troupeRole.toLowerCase().includes(q) ||
+      m.phone.includes(q);
+    const matchesStatus = statusFilter === 'Todos' || m.memberStatus === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const getStatusBadge = (status: MemberStatus) => {
     switch (status) {
       case 'Activo':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Activo</span>;
+        return <span className="text-emerald-700 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />Activo</span>;
       case 'Moroso':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200"><AlertCircle className="w-3.5 h-3.5 mr-1" /> Moroso</span>;
+        return <span className="text-rose-600 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5" />Moroso</span>;
       case 'Exento':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"><UserCheck className="w-3.5 h-3.5 mr-1" /> Exento</span>;
+        return <span className="text-indigo-600 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5" />Exento</span>;
       case 'Honorario':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">Honorario</span>;
+        return <span className="text-amber-700 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5" />Honorario</span>;
       case 'Inactivo':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">Inactivo</span>;
+        return <span className="text-slate-400 font-medium text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-slate-300 mr-1.5" />Inactivo</span>;
     }
   };
 
   return (
-    <div className="space-y-5">
-
-      {/* RECOVERY ALERT BANNER (Shown if previously entered members are found) */}
+    <div className="space-y-4">
+      {/* Quiet Recovery Notice (only if recoverable items exist) */}
       {recoverableCount > 0 && (
-        <div className="bg-gradient-to-r from-amber-500/10 via-emerald-500/10 to-indigo-500/10 border-2 border-amber-300 rounded-2xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in">
-          <div className="flex items-start space-x-3.5">
-            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0 mt-0.5">
-              <RotateCcw className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 text-sm md:text-base flex items-center gap-2">
-                <span>¡Se encontraron {recoverableCount} socio(s) ingresados anteriormente!</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                  Rescatados en Memoria
-                </span>
-              </h3>
-              <p className="text-xs text-slate-600 mt-1 max-w-2xl">
-                Detectamos registros previos en la bóveda de seguridad y memoria de tu navegador que no están en la lista actual. Puedes restaurarlos inmediatamente con 1 clic para que queden asegurados en Firestore.
-              </p>
-            </div>
+        <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-amber-900">
+          <div className="flex items-center space-x-2">
+            <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Hay <strong>{recoverableCount}</strong> socio(s) en papelera/bóveda recuperables.</span>
           </div>
-
-          <div className="flex items-center space-x-2.5 shrink-0 self-end md:self-center">
+          <div className="flex items-center space-x-2">
             {onQuickRestoreAll && (
               <button
                 onClick={onQuickRestoreAll}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center space-x-1.5 shadow-sm transition-all"
+                className="font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Restaurar todos ahora</span>
+                Restaurar todos
               </button>
             )}
             <button
               onClick={openRecoveryModal}
-              className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 font-semibold rounded-xl text-xs border border-slate-300 shadow-2xs transition-colors"
+              className="text-slate-600 hover:text-slate-900 underline cursor-pointer"
             >
-              Revisar detalles
+              Ver detalles
             </button>
           </div>
         </div>
       )}
-      
-      {/* Top Controls Header */}
-      <div className="bg-white p-4 md:p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+
+      {/* Main Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
         <div>
-          <div className="flex items-center space-x-2">
-            <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2.5">
-              <Users className="w-6 h-6 text-indigo-600" />
-              <span>Directorio de Socios • Carecueca Teatro</span>
-            </h2>
-            <span className="hidden sm:inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <ShieldCheck className="w-3 h-3 mr-1" />
-              Persistencia Robusta Activa
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <span>Padrón de Socios</span>
+            <span className="text-xs font-semibold px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md tabular-nums">
+              {members.length}
             </span>
-          </div>
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">Integrantes oficiales de Carecueca Teatro</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          {/* Deduplicate Button */}
           {onDeduplicateMembers && (
             <button
               onClick={onDeduplicateMembers}
               disabled={isDeduplicating}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-lg text-xs transition-colors border border-amber-200 cursor-pointer disabled:opacity-50"
-              title="Detectar y eliminar automáticamente socios duplicados o repetidos (como Bernardina)"
+              className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+              title="Detectar y eliminar socios duplicados automáticamente"
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-amber-600 ${isDeduplicating ? 'animate-spin' : ''}`} />
-              <span>{isDeduplicating ? 'Depurando duplicados...' : 'Depurar Socios Repetidos'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isDeduplicating ? 'animate-spin text-amber-600' : 'text-slate-400'}`} />
+              <span className="hidden md:inline">{isDeduplicating ? 'Depurando...' : 'Depurar Duplicados'}</span>
             </button>
           )}
 
-          <button
-            onClick={openRecoveryModal}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition-colors border border-slate-200"
-            title="Ver historial de respaldos y recuperar socios anteriores"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Recuperación & Bóveda</span>
-            {recoverableCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold animate-pulse">
-                {recoverableCount}
-              </span>
-            )}
-          </button>
-
+          {/* Add Member CTA */}
           <button
             onClick={openAddModal}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg text-xs transition-colors cursor-pointer flex items-center space-x-1.5 shadow-xs"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>+ Agregar Socio</span>
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Nuevo Socio</span>
           </button>
         </div>
       </div>
 
-      {/* Members Grid Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredMembers.length > 0 ? (
-          filteredMembers.map((member, idx) => (
-            <div
-              key={`${member.id}-${idx}`}
-              className="bg-white rounded-xl p-4 md:p-5 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-indigo-200 transition-colors"
+      {/* Search & Filter Bar */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="relative w-full sm:w-72">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar por nombre, RUT o rol..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
+          />
+        </div>
+
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto text-xs">
+          {['Todos', 'Activo', 'Moroso', 'Exento'].map((status) => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                statusFilter === status
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+              }`}
             >
-              <div>
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-base">{member.name}</h3>
-                    <p className="text-xs text-slate-500 font-mono mt-0.5">RUT: {member.rut || 'Sin RUT'}</p>
-                  </div>
-                  {getStatusBadge(member.memberStatus)}
-                </div>
-
-                <div className="mt-4 space-y-2 text-sm">
-                  <div className="flex items-center text-slate-800 font-medium">
-                    <Drama className="w-4 h-4 text-indigo-600 mr-2.5 shrink-0" />
-                    <span>Rol: <strong className="text-slate-900 font-bold">{member.troupeRole}</strong></span>
-                  </div>
-
-                  <div className="flex items-center text-slate-600">
-                    <Mail className="w-4 h-4 text-slate-400 mr-2.5 shrink-0" />
-                    <span className="truncate">{member.email || 'Sin correo'}</span>
-                  </div>
-
-                  <div className="flex items-center text-slate-600">
-                    <Phone className="w-4 h-4 text-slate-400 mr-2.5 shrink-0" />
-                    <span>{member.phone || 'Sin teléfono'}</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-sm">
-                  <span className="text-slate-600 font-medium">Cuota Personal:</span>
-                  <span className="font-bold text-slate-900 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200 text-sm">
-                    {formatCLP(member.customQuota)}
-                  </span>
-                </div>
-
-                {member.notes && (
-                  <p className="text-xs text-slate-600 italic mt-3 bg-slate-50 p-2 rounded-md border border-slate-100">
-                    "{member.notes}"
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="text-slate-500 font-medium">Rol App: <strong className="text-slate-800">{member.userRole}</strong></span>
-
-                <div className="flex items-center space-x-1.5">
-                  <button
-                    onClick={() => openEditModal(member)}
-                    className="p-1.5 hover:bg-slate-100 text-slate-700 rounded-lg transition-colors"
-                    title="Editar Socio"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
-
-                  {currentUserRole === 'Admin' && (
-                    <button
-                      onClick={() => setMemberToDelete(member)}
-                      className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition-colors"
-                      title="Eliminar Socio (Se guarda en papelera)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-            </div>
-          ))
-        ) : (
-          <div className="col-span-full text-center py-12 bg-white rounded-xl border border-slate-200 p-6 flex flex-col items-center justify-center space-y-3">
-            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-full">
-              <UserPlus className="w-6 h-6" />
-            </div>
-            <p className="text-slate-700 font-semibold text-sm">No hay socios que coincidan con la búsqueda.</p>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={openAddModal}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm"
-              >
-                + Agregar socio
-              </button>
-              {recoverableCount > 0 && (
-                <button
-                  onClick={openRecoveryModal}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors shadow-sm flex items-center space-x-1"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Recuperar ({recoverableCount})</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+              {status}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Modal: Add or Edit Member */}
+      {/* Clean Minimalist Member Names List */}
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
+        <div className="p-3 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span>Nombre del Socio <span className="text-[11px] text-slate-400 font-normal">(haz clic para desplegar u ocultar datos)</span></span>
+          <span className="tabular-nums font-semibold text-slate-700">{filteredMembers.length} {filteredMembers.length === 1 ? 'socio' : 'socios'}</span>
+        </div>
+
+        <div className="divide-y divide-slate-100">
+          {filteredMembers.length > 0 ? (
+            filteredMembers.map((member) => {
+              const isExpanded = expandedIds.has(member.id);
+              return (
+                <div key={member.id} className="transition-colors">
+                  {/* Name Only Row */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleExpand(member.id)}
+                    className={`w-full text-left px-4 py-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer select-none ${
+                      isExpanded ? 'bg-slate-50/80' : 'bg-white'
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-900 text-sm tracking-tight">{member.name}</span>
+                    <div className="flex items-center space-x-2 text-slate-400">
+                      <span className="text-[11px] font-medium hidden sm:inline">
+                        {isExpanded ? 'Ocultar datos' : 'Ver datos'}
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          isExpanded ? 'rotate-180 text-slate-700' : 'text-slate-400'
+                        }`}
+                      />
+                    </div>
+                  </button>
+
+                  {/* Expanded Details - Only Shown When Clicking the Name */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 pt-2 bg-slate-50/50 border-t border-slate-100 animate-in fade-in duration-150">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 text-xs mb-3.5">
+                        
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">RUT</span>
+                          <span className="font-mono font-medium text-slate-800">{member.rut || 'No registrado'}</span>
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Rol en Obra</span>
+                          <span className="font-medium text-slate-800">{member.troupeRole || 'Actor/Actriz'}</span>
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Estado del Socio</span>
+                          <div>{getStatusBadge(member.memberStatus)}</div>
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Teléfono / WhatsApp</span>
+                          {member.phone ? (
+                            <a
+                              href={`https://wa.me/${member.phone.replace(/[^\d+]/g, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-700 hover:text-emerald-800 font-medium inline-flex items-center space-x-1"
+                            >
+                              <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>{member.phone}</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">Sin teléfono</span>
+                          )}
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Correo Electrónico</span>
+                          {member.email ? (
+                            <a
+                              href={`mailto:${member.email}`}
+                              className="text-slate-700 hover:text-indigo-600 truncate block font-medium flex items-center space-x-1"
+                            >
+                              <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="truncate">{member.email}</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">Sin correo</span>
+                          )}
+                        </div>
+
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Cuota Mensual</span>
+                          <span className="font-bold text-slate-900 tabular-nums">{formatCLP(member.customQuota)}</span>
+                        </div>
+
+                        {member.userRole && member.userRole !== 'Socio' && (
+                          <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Rol de Sistema</span>
+                            <span className="font-semibold text-indigo-700">{member.userRole}</span>
+                          </div>
+                        )}
+
+                        {member.joinDate && (
+                          <div className="bg-white p-2.5 rounded-lg border border-slate-200/80">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Fecha de Ingreso</span>
+                            <span className="text-slate-700">{member.joinDate}</span>
+                          </div>
+                        )}
+
+                        {member.notes && (
+                          <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 sm:col-span-2 md:col-span-3">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Notas</span>
+                            <p className="text-slate-600">{member.notes}</p>
+                          </div>
+                        )}
+
+                      </div>
+
+                      {/* Actions: Edit & Delete */}
+                      <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200/70">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(member)}
+                          className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg font-semibold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Editar Socio</span>
+                        </button>
+
+                        {currentUserRole === 'Admin' && (
+                          <button
+                            type="button"
+                            onClick={() => setMemberToDelete(member)}
+                            className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg font-semibold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Eliminar</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-center py-12 text-slate-400 text-xs">
+              No se encontraron socios con los filtros actuales.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal: New / Edit Member */}
       {memberModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 relative animate-in fade-in zoom-in-95">
             <button
               onClick={() => setMemberModalOpen(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              className="absolute top-4 right-4 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-                <Users className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  {editingMember ? 'Editar Socio' : 'Nuevo Socio'}
-                </h3>
-                <p className="text-xs text-slate-500">Agrupación Carecueca Teatro • Guardado Seguro</p>
-              </div>
-            </div>
+            <h3 className="text-base font-bold text-slate-900 mb-4">
+              {editingMember ? 'Editar Socio' : 'Nuevo Socio'}
+            </h3>
 
-            {/* DRAFT RESTORATION NOTICE */}
+            {/* Draft Notice */}
             {hasDraft && !editingMember && (
-              <div className="mb-4 bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between text-xs text-amber-900">
-                <div className="flex items-center space-x-2">
-                  <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>Se detectó un borrador previo no guardado.</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={applyDraft}
-                    className="font-bold text-indigo-600 hover:underline"
-                  >
-                    Restaurar borrador
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { clearFormDraft(); setHasDraft(false); }}
-                    className="text-slate-400 hover:text-slate-600"
-                  >
-                    Descartar
-                  </button>
+              <div className="mb-3 bg-amber-50 border border-amber-200 p-2.5 rounded-lg flex items-center justify-between text-xs text-amber-900">
+                <span>Borrador no guardado disponible.</span>
+                <div className="space-x-2">
+                  <button type="button" onClick={applyDraft} className="font-bold underline">Restaurar</button>
+                  <button type="button" onClick={() => { clearFormDraft(); setHasDraft(false); }} className="text-slate-400">Descartar</button>
                 </div>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4 text-sm">
-              
+            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Nombre Completo *</label>
+                <label className="block font-semibold text-slate-700 mb-1">Nombre Completo *</label>
                 <input
                   type="text"
                   required
                   placeholder="Ej: Valentina Henríquez"
                   value={name}
                   onChange={(e) => { setName(e.target.value); handleFieldChange('name', e.target.value); }}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-800 mb-1">RUT *</label>
+                  <label className="block font-semibold text-slate-700 mb-1">RUT *</label>
                   <input
                     type="text"
                     required
@@ -494,266 +544,153 @@ export const MembersList: React.FC<MembersListProps> = ({
                       setRut(formatted);
                       handleFieldChange('rut', formatted);
                     }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-800 mb-1">Teléfono</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Rol en Compañía</label>
+                  <select
+                    value={troupeRole}
+                    onChange={(e) => {
+                      const r = e.target.value as TroupeRole;
+                      setTroupeRole(r);
+                      handleFieldChange('troupeRole', r);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white cursor-pointer"
+                  >
+                    <option value="Actor/Actriz">Actor/Actriz</option>
+                    <option value="Director/a">Director/a</option>
+                    <option value="Músico">Músico</option>
+                    <option value="Técnico">Técnico</option>
+                    <option value="Producción">Producción</option>
+                    <option value="Dramaturgo/a">Dramaturgo/a</option>
+                    <option value="Diseñador/a">Diseñador/a</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Teléfono WhatsApp</label>
                   <input
-                    type="text"
+                    type="tel"
                     placeholder="+56 9 1234 5678"
                     value={phone}
                     onChange={(e) => { setPhone(e.target.value); handleFieldChange('phone', e.target.value); }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Cuota Mensual ($CLP)</label>
+                  <input
+                    type="number"
+                    step="1000"
+                    min="0"
+                    value={customQuota}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setCustomQuota(val);
+                      handleFieldChange('customQuota', val);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-800 mb-1">Correo Electrónico *</label>
+                <label className="block font-semibold text-slate-700 mb-1">Correo Electrónico (Opcional)</label>
                 <input
                   type="email"
-                  required
-                  placeholder="socio@carecuecateatro.cl"
+                  placeholder="ejemplo@correo.cl"
                   value={email}
                   onChange={(e) => { setEmail(e.target.value); handleFieldChange('email', e.target.value); }}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-800 mb-1">Rol en Elenco</label>
-                  <select
-                    value={troupeRole}
-                    onChange={(e) => { setTroupeRole(e.target.value as TroupeRole); handleFieldChange('troupeRole', e.target.value); }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="Actor/Actriz">Actor / Actriz</option>
-                    <option value="Director/a">Director / a</option>
-                    <option value="Músico">Músico</option>
-                    <option value="Técnico/a">Técnico / a</option>
-                    <option value="Producción">Producción</option>
-                    <option value="Dramaturgo/a">Dramaturgo / a</option>
-                    <option value="Gestor/a">Gestor / a</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-800 mb-1">Estado de Socio</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Estado</label>
                   <select
                     value={memberStatus}
-                    onChange={(e) => { setMemberStatus(e.target.value as MemberStatus); handleFieldChange('memberStatus', e.target.value); }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    onChange={(e) => {
+                      const s = e.target.value as MemberStatus;
+                      setMemberStatus(s);
+                      handleFieldChange('memberStatus', s);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white cursor-pointer"
                   >
                     <option value="Activo">Activo</option>
                     <option value="Moroso">Moroso</option>
-                    <option value="Exento">Exento (Beca)</option>
+                    <option value="Exento">Exento</option>
                     <option value="Honorario">Honorario</option>
                     <option value="Inactivo">Inactivo</option>
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-800 mb-1">Rol en Sistema</label>
-                  <select
-                    value={userRole}
-                    onChange={(e) => { setUserRole(e.target.value as UserRole); handleFieldChange('userRole', e.target.value); }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="Socio">Socio</option>
-                    <option value="Tesorero">Tesorero</option>
-                    <option value="Admin">Administrador</option>
-                  </select>
-                </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-800 mb-1">Cuota Base ($ CLP)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Nota o Observación</label>
                   <input
-                    type="number"
-                    value={customQuota}
-                    onChange={(e) => { setCustomQuota(Number(e.target.value)); handleFieldChange('customQuota', Number(e.target.value)); }}
-                    className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    type="text"
+                    placeholder="Ej: Ensaya los martes"
+                    value={notes}
+                    onChange={(e) => { setNotes(e.target.value); handleFieldChange('notes', e.target.value); }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-800 mb-1">Observaciones / Notas</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Elenco obra La Cueca Trágica..."
-                  value={notes}
-                  onChange={(e) => { setNotes(e.target.value); handleFieldChange('notes', e.target.value); }}
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+              <div className="pt-3 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setMemberModalOpen(false)}
+                  className="px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Guardando...' : (editingMember ? 'Actualizar Socio' : 'Guardar Socio')}
+                </button>
               </div>
-
-              <div className="pt-3 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500 flex items-center">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 mr-1" />
-                  Auto-guardado en Nube y Bóveda
-                </span>
-
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setMemberModalOpen(false)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center space-x-1.5"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Guardando...</span>
-                      </>
-                    ) : (
-                      <span>{editingMember ? 'Actualizar Socio' : 'Guardar Socio'}</span>
-                    )}
-                  </button>
-                </div>
-              </div>
-
             </form>
           </div>
         </div>
       )}
 
-      {/* CONFIRMATION MODAL FOR DELETING MEMBER */}
-      {memberToDelete && (() => {
-        const memberDues = dues.filter((d) => d.memberId === memberToDelete.id);
-        const memberDuesCount = memberDues.length;
-        const memberPaidCount = memberDues.filter((d) => d.amountPaid > 0 || d.status === 'Pagado').length;
-        const totalPaidCLP = memberDues.reduce((sum, d) => sum + (d.amountPaid || 0), 0);
-
-        return (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-              <div className="flex items-center space-x-3 text-rose-600">
-                <div className="p-2.5 bg-rose-50 rounded-xl">
-                  <AlertTriangle className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Eliminar Socio del Directorio</h3>
-                  <p className="text-xs text-slate-500">Carecueca Teatro • Opciones de Eliminación</p>
-                </div>
-              </div>
-
-              {/* Member Summary */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="font-bold text-slate-900 text-sm">{memberToDelete.name}</p>
-                    <p className="text-xs text-slate-500 font-mono mt-0.5">RUT: {memberToDelete.rut || 'Sin RUT'} • {memberToDelete.troupeRole}</p>
-                  </div>
-                  <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-semibold">
-                    {memberToDelete.memberStatus}
-                  </span>
-                </div>
-
-                {memberDuesCount > 0 ? (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-900 flex items-center justify-between">
-                    <span>
-                      Registros de cuotas: <strong>{memberDuesCount} período(s)</strong> ({memberPaidCount} pagado/parcial)
-                    </span>
-                    {totalPaidCLP > 0 && (
-                      <span className="font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded">
-                        Total pagado: {formatCLP(totalPaidCLP)}
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 italic">No registra cuotas asociadas en períodos actuales.</p>
-                )}
-              </div>
-
-              <p className="text-xs text-slate-600">
-                Elige el modo de eliminación adecuado según la situación:
-              </p>
-
-              {/* Option 1: Ingreso Erróneo (Definitive removal of member and all dues/payments) */}
-              <div className="border-2 border-rose-300 bg-rose-50/50 rounded-xl p-4 transition-all hover:bg-rose-50/80 space-y-2.5">
-                <div className="flex items-start space-x-2.5">
-                  <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0 mt-0.5">
-                    <Trash2 className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-rose-950">1. Eliminar por ingreso erróneo (Eliminación Total)</h4>
-                      <span className="text-[10px] bg-rose-200 text-rose-800 font-bold px-1.5 py-0.5 rounded">Recomendado</span>
-                    </div>
-                    <p className="text-[11px] text-rose-900/85 mt-1 leading-relaxed">
-                      Elimina definitivamente al socio y <strong>todos sus registros de pago y cuotas</strong> de la base de datos Firestore y del sistema. No dejará cobros huérfanos ni volverá a aparecer en la papelera o bóveda de seguridad.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => handleConfirmDelete(true)}
-                  className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer"
-                >
-                  {isDeleting ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Eliminando socio y registros de pago...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="w-4 h-4" />
-                      <span>Eliminar socio y sus pagos por ingreso erróneo</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Option 2: Mover a Papelera / Archivar */}
-              <div className="border border-slate-200 bg-slate-50/70 rounded-xl p-3.5 space-y-2">
-                <div className="flex items-start space-x-2.5">
-                  <div className="p-1.5 bg-slate-200 text-slate-700 rounded-lg shrink-0 mt-0.5">
-                    <ShieldCheck className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="text-xs font-bold text-slate-800">2. Mover a Papelera de Seguridad</h4>
-                    <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                      Archiva al socio en la papelera temporal (por si es un retiro temporal) y permite restaurarlo más adelante desde Bóveda de Seguridad.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={() => handleConfirmDelete(false)}
-                  className="w-full py-2 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
-                >
-                  <span>Mover a Papelera (Conservar en Bóveda)</span>
-                </button>
-              </div>
-
-              <div className="flex items-center justify-end pt-1">
-                <button
-                  type="button"
-                  onClick={() => setMemberToDelete(null)}
-                  disabled={isDeleting}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition-colors cursor-pointer"
-                >
-                  Cancelar
-                </button>
-              </div>
+      {/* Delete Confirmation Modal */}
+      {memberToDelete && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl border border-slate-200">
+            <h3 className="text-sm font-bold text-slate-900 mb-2">¿Eliminar socio?</h3>
+            <p className="text-xs text-slate-600 mb-4">
+              Se eliminará a <strong>{memberToDelete.name}</strong> del padrón activo. Podrás restaurarlo en cualquier momento desde la Bóveda de Recuperación.
+            </p>
+            <div className="flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setMemberToDelete(null)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmDelete(true)}
+                disabled={isDeleting}
+                className="px-3.5 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
             </div>
           </div>
-        );
-      })()}
-
+        </div>
+      )}
     </div>
   );
 };

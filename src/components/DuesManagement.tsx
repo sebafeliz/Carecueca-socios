@@ -36,6 +36,7 @@ interface DuesManagementProps {
   onSendWhatsAppReminder: (due: DuePayment) => void;
   bankDetails: any;
   onOpenWipeModal?: () => void;
+  onGenerateDuesForCurrentPeriod?: () => void;
 }
 
 export const DuesManagement: React.FC<DuesManagementProps> = ({
@@ -49,6 +50,7 @@ export const DuesManagement: React.FC<DuesManagementProps> = ({
   onCreatePeriod,
   onSendWhatsAppReminder,
   onOpenWipeModal,
+  onGenerateDuesForCurrentPeriod,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('Todos');
@@ -292,74 +294,59 @@ _Tesorería Carecueca Teatro_`;
     setPeriodModalOpen(false);
   };
 
-  // Badge Status Helper
+  // Clean Minimalist Status Helper
   const getStatusBadge = (status: PaymentStatus) => {
     switch (status) {
       case 'Pagado':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Pagado</span>;
+        return <span className="text-emerald-700 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />Pagado</span>;
       case 'Atrasado':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200"><AlertCircle className="w-3.5 h-3.5 mr-1" /> Atrasado</span>;
+        return <span className="text-rose-600 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5" />Atrasado</span>;
       case 'Pendiente':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200"><Clock className="w-3.5 h-3.5 mr-1" /> Pendiente</span>;
+        return <span className="text-amber-700 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5" />Pendiente</span>;
       case 'Parcial':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"><Wallet className="w-3.5 h-3.5 mr-1" /> Parcial</span>;
+        return <span className="text-indigo-600 font-semibold text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5" />Parcial</span>;
       case 'Exento':
-        return <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200"><UserCheck className="w-3.5 h-3.5 mr-1" /> Exento</span>;
+        return <span className="text-slate-400 font-medium text-xs inline-flex items-center"><span className="w-1.5 h-1.5 rounded-full bg-slate-300 mr-1.5" />Exento</span>;
     }
   };
 
   return (
-    <div className="space-y-5">
-      
-      {/* Header & Controls Bar */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2.5">
-            <Wallet className="w-6 h-6 text-indigo-600" />
-            <span>Gestión de Cuotas Mensuales</span>
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Período: <strong className="text-slate-800 font-bold">{currentPeriod?.title}</strong> | Vencimiento: {currentPeriod?.dueDate}
-          </p>
+    <div className="space-y-4">
+      {/* Header & Month Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Cuotas y Pagos</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Control de pagos mensuales y cobranza</p>
+          </div>
+          <div className="ml-2">
+            <select
+              value={selectedPeriodId}
+              onChange={(e) => setSelectedPeriodId(e.target.value)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 cursor-pointer shadow-xs focus:outline-none focus:ring-1 focus:ring-slate-400"
+            >
+              {periods.map((p, idx) => (
+                <option key={`${p.id}-${idx}`} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Period Dropdown */}
-          <select
-            value={selectedPeriodId}
-            onChange={(e) => setSelectedPeriodId(e.target.value)}
-            className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 cursor-pointer"
-          >
-            {periods.map((p, idx) => (
-              <option key={`${p.id}-${idx}`} value={p.id}>
-                {p.title} - Vence {p.dueDate}
-              </option>
-            ))}
-          </select>
-
+        <div className="flex items-center gap-2">
           {/* Create New Period Button */}
           <button
             onClick={() => setPeriodModalOpen(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-sm transition-colors shadow-sm"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg text-xs transition-colors cursor-pointer flex items-center space-x-1.5 shadow-xs"
           >
-            <Plus className="w-4 h-4" />
-            <span>+ Nuevo Mes de Cuotas</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Nuevo Mes</span>
           </button>
-
-          {onOpenWipeModal && (
-            <button
-              onClick={onOpenWipeModal}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs transition-colors border border-rose-200 cursor-pointer"
-              title="Reiniciar todo y eliminar pagos y cobros, conservando únicamente a los socios"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-              <span>Reiniciar Pagos y Cobros</span>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Real-time Period Summary KPI Cards */}
+      {/* 3-Card Minimalist KPI Strip */}
       {(() => {
         const totalCollected = periodDues.reduce((sum, d) => sum + (d.amountPaid || 0), 0);
         const totalExpected = periodDues.reduce((sum, d) => d.status === 'Exento' ? sum : sum + (d.amount || 0), 0);
@@ -369,85 +356,66 @@ _Tesorería Carecueca Teatro_`;
         const percentCollected = totalExpected > 0 ? Math.min(100, Math.round((totalCollected / totalExpected) * 100)) : 0;
 
         return (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Total Recaudado</span>
-              <div className="flex items-baseline space-x-2 mt-1">
-                <span className="text-lg md:text-xl font-extrabold text-emerald-700">{formatCLP(totalCollected)}</span>
-                <span className="text-xs font-bold text-emerald-600">{percentCollected}%</span>
-              </div>
-              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
-                <div 
-                  className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
-                  style={{ width: `${percentCollected}%` }}
-                />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Total Recaudado</span>
+              <div className="flex items-baseline space-x-2 mt-0.5">
+                <span className="text-lg font-bold text-slate-900 tabular-nums">{formatCLP(totalCollected)}</span>
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                  {percentCollected}%
+                </span>
               </div>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Saldo Pendiente</span>
-              <span className="text-lg md:text-xl font-extrabold text-amber-700 block mt-1">{formatCLP(pendingBalance)}</span>
-              <span className="text-[11px] text-slate-400 mt-1 block">De {formatCLP(totalExpected)} proyectado</span>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Saldo Pendiente</span>
+              <span className="text-lg font-bold text-amber-800 tabular-nums block mt-0.5">{formatCLP(pendingBalance)}</span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Cuotas Pagadas</span>
-              <div className="flex items-baseline space-x-1.5 mt-1">
-                <span className="text-lg md:text-xl font-extrabold text-slate-900">{paidCount}</span>
-                <span className="text-xs text-slate-500 font-medium">de {periodDues.length} socios</span>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Socios al Día</span>
+              <div className="flex items-baseline space-x-1.5 mt-0.5">
+                <span className="text-lg font-bold text-slate-900 tabular-nums">{paidCount}</span>
+                <span className="text-xs text-slate-400">de {periodDues.length} socios</span>
               </div>
-              <span className="text-[11px] text-emerald-600 font-semibold mt-1 block">
-                {paidCount === periodDues.length && periodDues.length > 0 ? '¡100% al día!' : `${periodDues.length - paidCount} restantes`}
-              </span>
-            </div>
-
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Cuotas Pendientes / Moras</span>
-              <span className={`text-lg md:text-xl font-extrabold block mt-1 ${pendingCount > 0 ? 'text-rose-600' : 'text-slate-700'}`}>
-                {pendingCount}
-              </span>
-              <span className="text-[11px] text-slate-400 mt-1 block">Requieren seguimiento</span>
             </div>
           </div>
         );
       })()}
 
       {/* Filters & Search Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
-        
-        {/* Search */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
           <input
             type="text"
             placeholder="Buscar socio..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+            className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 focus:bg-white"
           />
         </div>
 
-        {/* Status Filter Chips */}
-        <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-          {['Todos', 'Pagado', 'Pendiente', 'Atrasado', 'Parcial', 'Exento'].map((status) => (
+        {/* Status Filter Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto text-xs">
+          {['Todos', 'Pagado', 'Pendiente', 'Atrasado', 'Exento'].map((status) => (
             <button
               key={status}
               onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 statusFilter === status
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               {status}
             </button>
           ))}
         </div>
-
       </div>
 
-      {/* Dues Table / Cards View */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Dues Table View */}
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
         
         {/* Desktop Table View */}
         <div className="hidden md:block overflow-x-auto">
@@ -534,8 +502,29 @@ _Tesorería Carecueca Teatro_`;
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-500 text-sm font-medium">
-                    No se encontraron cuotas para los filtros seleccionados.
+                  <td colSpan={7} className="text-center py-12 text-slate-500 text-sm font-medium">
+                    {periodDues.length === 0 ? (
+                      <div className="max-w-md mx-auto space-y-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                          <Wallet className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-slate-800 font-bold text-sm">No hay cuotas registradas para {currentPeriod?.title || 'este período'}</p>
+                          <p className="text-xs text-slate-500 mt-1">Los datos de pagos y cuotas anteriores fueron eliminados. Los {members.length} socios se encuentran listos en el padrón.</p>
+                        </div>
+                        {onGenerateDuesForCurrentPeriod && (
+                          <button
+                            onClick={onGenerateDuesForCurrentPeriod}
+                            className="mt-2 inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                          >
+                            <Calendar className="w-4 h-4" />
+                            <span>Generar Cuotas para los {members.length} Socios</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      "No se encontraron cuotas para los filtros seleccionados."
+                    )}
                   </td>
                 </tr>
               )}
@@ -623,8 +612,29 @@ _Tesorería Carecueca Teatro_`;
               </div>
             ))
           ) : (
-            <div className="text-center py-8 text-slate-500 text-sm">
-              No hay cuotas registradas para este filtro.
+            <div className="text-center py-10 text-slate-500 text-sm p-4">
+              {periodDues.length === 0 ? (
+                <div className="space-y-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-slate-800 font-bold text-sm">No hay cuotas para {currentPeriod?.title || 'este período'}</p>
+                    <p className="text-xs text-slate-500 mt-1">Pagos eliminados. Se conservan los {members.length} socios.</p>
+                  </div>
+                  {onGenerateDuesForCurrentPeriod && (
+                    <button
+                      onClick={onGenerateDuesForCurrentPeriod}
+                      className="mt-2 inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    >
+                      <Calendar className="w-4 h-4" />
+                      <span>Generar Cuotas de Socios</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                "No hay cuotas registradas para este filtro."
+              )}
             </div>
           )}
         </div>

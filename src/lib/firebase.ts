@@ -141,6 +141,36 @@ export async function seedInitialDataIfNeeded() {
   await purgeAllSampleData();
 }
 
+// Cleanly deletes all payment & dues data across Firestore and local storage,
+// strictly PRESERVING all member data.
+export async function purgePaymentDataEverywhere(): Promise<boolean> {
+  try {
+    // 1. Purge all dues from Firestore
+    const duesSnap = await getDocs(collection(db, "dues")).catch(() => null);
+    if (duesSnap && !duesSnap.empty) {
+      const batch = writeBatch(db);
+      duesSnap.docs.forEach((d) => {
+        batch.delete(doc(db, "dues", d.id));
+      });
+      await batch.commit().catch(() => {});
+    }
+
+    // 2. Clear client storage caches for dues and payment logs
+    try {
+      localStorage.setItem("carecueca_dues", "[]");
+      localStorage.setItem("carecueca_notifications", "[]");
+      localStorage.setItem("carecueca_backup_logs", "[]");
+      localStorage.removeItem("carecueca_deleted_ids_dues");
+      localStorage.setItem("carecueca_payments_purged_flag_v1", "true");
+    } catch (e) {}
+
+    return true;
+  } catch (err) {
+    console.error("Error purging payment data:", err);
+    return false;
+  }
+}
+
 
 // Helper to track intentionally deleted IDs so the smart merge doesn't resurrect them
 function getDeletedIds(collectionName: string): Set<string> {
@@ -200,7 +230,14 @@ export function subscribeCollection<T extends { id: string }>(
         const deletedIds = getDeletedIds(collectionName);
 
         if (snapshot.empty) {
-          // If Firestore collection is empty, preserve all non-sample local items!
+          if (collectionName !== "members") {
+            try {
+              localStorage.setItem(`carecueca_${collectionName}`, "[]");
+            } catch (e) {}
+            onUpdate([]);
+            return;
+          }
+          // If Firestore members collection is temporarily empty or offline, preserve all non-sample local items!
           const nonDeletedLocal = localItems.filter(
             (item) => item && item.id && !deletedIds.has(item.id) && !isSampleRecord(item)
           );
@@ -228,33 +265,32 @@ export function subscribeCollection<T extends { id: string }>(
           }
         });
 
-        // 2. CRITICAL: Merge in local items that are not yet in Firestore!
-        // This ensures local additions or edits are NEVER wiped out by a snapshot
-        localItems.forEach((localItem) => {
-          if (!localItem || !localItem.id || deletedIds.has(localItem.id) || isSampleRecord(localItem)) return;
+        // 2. CRITICAL: For members only, merge in local items that are not yet in Firestore
+        // to prevent accidental member data loss. For dues/payments, do NOT push wiped local items.
+        if (collectionName === "members") {
+          localItems.forEach((localItem) => {
+            if (!localItem || !localItem.id || deletedIds.has(localItem.id) || isSampleRecord(localItem)) return;
 
-          if (!mergedMap.has(localItem.id)) {
-            // Local item not present in cloud yet: KEEP IT and push to Firestore
-            mergedMap.set(localItem.id, localItem);
-            // Silently upload to Firestore so it is persistently stored in cloud
-            const docRef = doc(db, collectionName, localItem.id);
-            setDoc(docRef, cleanForFirestore(localItem)).catch((e) => {
-              console.warn(`Background push to Firestore failed for ${collectionName}/${localItem.id}:`, e);
-            });
-          } else {
-            // Exists in both: compare modification timestamp
-            const remoteItem = mergedMap.get(localItem.id) as any;
-            const localAny = localItem as any;
-            const localTime = localAny.updatedAt || localAny.createdAt;
-            const remoteTime = remoteItem?.updatedAt || remoteItem?.createdAt;
-
-            if (localTime && (!remoteTime || localTime > remoteTime)) {
+            if (!mergedMap.has(localItem.id)) {
               mergedMap.set(localItem.id, localItem);
               const docRef = doc(db, collectionName, localItem.id);
-              setDoc(docRef, cleanForFirestore(localItem)).catch(() => {});
+              setDoc(docRef, cleanForFirestore(localItem)).catch((e) => {
+                console.warn(`Background push to Firestore failed for ${collectionName}/${localItem.id}:`, e);
+              });
+            } else {
+              const remoteItem = mergedMap.get(localItem.id) as any;
+              const localAny = localItem as any;
+              const localTime = localAny.updatedAt || localAny.createdAt;
+              const remoteTime = remoteItem?.updatedAt || remoteItem?.createdAt;
+
+              if (localTime && (!remoteTime || localTime > remoteTime)) {
+                mergedMap.set(localItem.id, localItem);
+                const docRef = doc(db, collectionName, localItem.id);
+                setDoc(docRef, cleanForFirestore(localItem)).catch(() => {});
+              }
             }
-          }
-        });
+          });
+        }
 
         const mergedList = Array.from(mergedMap.values()).filter((item) => !isSampleRecord(item));
 

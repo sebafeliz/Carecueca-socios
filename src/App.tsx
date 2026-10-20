@@ -32,6 +32,7 @@ import {
   seedInitialDataIfNeeded, 
   purgeAllSampleData,
   purgeEverythingExceptMembersFromFirestore,
+  purgePaymentDataEverywhere,
   isSampleRecord,
   subscribeCollection, 
   saveMemberToFirestore, 
@@ -94,6 +95,14 @@ export default function App() {
 
   const [dues, setDues] = useState<DuePayment[]>(() => {
     try {
+      const purgedFlag = localStorage.getItem('carecueca_payments_purged_flag_v1');
+      if (!purgedFlag) {
+        localStorage.setItem('carecueca_dues', '[]');
+        localStorage.setItem('carecueca_notifications', '[]');
+        localStorage.setItem('carecueca_backup_logs', '[]');
+        localStorage.setItem('carecueca_payments_purged_flag_v1', 'true');
+        return [];
+      }
       const saved = localStorage.getItem('carecueca_dues');
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -176,6 +185,7 @@ export default function App() {
   // 1. Initial Firestore setup & Real-time listeners
   useEffect(() => {
     purgeAllSampleData();
+    purgePaymentDataEverywhere();
     // Run automated vault and storage deduplication on startup
     deduplicateVaultAndSnapshots();
 
@@ -511,6 +521,47 @@ export default function App() {
     showToast(`Periodo ${title} creado y cuotas generadas para ${newDuesList.length} socios.`);
   };
 
+  // Generate dues for the currently selected period for all active members
+  const handleGenerateDuesForCurrentPeriod = async () => {
+    const period = periods.find((p) => p.id === selectedPeriodId) || periods[periods.length - 1];
+    if (!period) return;
+
+    const newDuesList: DuePayment[] = members
+      .filter((m) => m.memberStatus !== 'Inactivo')
+      .map((m) => {
+        const isExempt = m.memberStatus === 'Exento' || m.memberStatus === 'Honorario' || m.customQuota === 0;
+        const amountToCharge = isExempt ? 0 : (m.customQuota > 0 ? m.customQuota : period.baseAmount);
+
+        return {
+          id: `due-${period.year}${period.month}-${m.id}`,
+          memberId: m.id,
+          memberName: m.name,
+          year: period.year,
+          month: period.month,
+          periodTitle: period.title,
+          amount: amountToCharge,
+          amountPaid: 0,
+          status: isExempt ? 'Exento' : 'Pendiente',
+          dueDate: period.dueDate,
+          notes: isExempt ? `Exento (${m.memberStatus})` : ''
+        };
+      });
+
+    setDues((prev) => {
+      const next = dedupeById([...prev, ...newDuesList]);
+      try { localStorage.setItem('carecueca_dues', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    try {
+      await batchSaveDuesToFirestore(newDuesList);
+    } catch (err) {
+      console.warn("Firestore batch save failed:", err);
+    }
+
+    showToast(`Cuotas de ${period.title} generadas para los ${newDuesList.length} socios.`);
+  };
+
   // Send WhatsApp Reminder Link
   const handleSendWhatsAppReminder = (due: DuePayment) => {
     const member = members.find((m) => m.id === due.memberId);
@@ -654,6 +705,7 @@ export default function App() {
             onSendWhatsAppReminder={handleSendWhatsAppReminder}
             bankDetails={INITIAL_BANK_DETAILS}
             onOpenWipeModal={() => setResetNonMemberModalOpen(true)}
+            onGenerateDuesForCurrentPeriod={handleGenerateDuesForCurrentPeriod}
           />
         )}
 
